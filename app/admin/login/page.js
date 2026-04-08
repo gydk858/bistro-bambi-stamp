@@ -61,7 +61,7 @@ export default function AdminLoginPage() {
               margin: 0,
             }}
           >
-            Bistro-Bambi
+            -Bistro-Bambi
           </h1>
 
           <p

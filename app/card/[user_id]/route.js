@@ -33,8 +33,8 @@ export async function GET(request, { params }) {
     (
       <div
         style={{
-          width: '1200px',
-          height: '630px',
+          width: '910px',
+          height: '550px',
           display: 'flex',
           position: 'relative',
           backgroundColor: '#ffffff',
@@ -45,8 +45,8 @@ export async function GET(request, { params }) {
           src={baseImageUrl}
           alt="stamp card"
           style={{
-            width: '1200px',
-            height: '630px',
+            width: '910px',
+            height: '550px',
             objectFit: 'cover',
           }}
         />
@@ -54,26 +54,27 @@ export async function GET(request, { params }) {
         <div
           style={{
             position: 'absolute',
-            top: '10px',
-            left: '12px',
-            right: '32px',
+            top: '22px',
+            left: '24px',
+            right: '24px',
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
-            gap: '16px',
+            gap: '12px',
           }}
         >
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              fontSize: '14px',
+              fontSize: '16px',
               fontWeight: 800,
               color: '#5a3318',
-              border: '4px solid #d98b3a',
+              backgroundColor: 'rgba(255,248,220,0.92)',
+              border: '3px solid #d98b3a',
               borderRadius: '999px',
-              padding: '10px 20px',
-              boxShadow: '0 4px 0 rgba(140, 80, 20, 0.25)',
+              padding: '8px 16px',
+              boxShadow: '0 3px 0 rgba(140, 80, 20, 0.25)',
             }}
           >
             番号：{user.user_id}
@@ -83,14 +84,15 @@ export async function GET(request, { params }) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              fontSize: '18px',
+              fontSize: '20px',
               fontWeight: 800,
               color: '#5a3318',
-              border: '4px solid #d98b3a',
+              backgroundColor: 'rgba(255,248,220,0.92)',
+              border: '3px solid #d98b3a',
               borderRadius: '999px',
-              padding: '10px 24px',
-              boxShadow: '0 4px 0 rgba(140, 80, 20, 0.25)',
-              maxWidth: '760px',
+              padding: '8px 18px',
+              boxShadow: '0 3px 0 rgba(140, 80, 20, 0.25)',
+              maxWidth: '590px',
             }}
           >
             氏名：{displayName}
@@ -99,8 +101,8 @@ export async function GET(request, { params }) {
       </div>
     ),
     {
-      width: 1200,
-      height: 630,
+      width: 910,
+      height: 550,
     }
   )
 }

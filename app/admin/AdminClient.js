@@ -12,6 +12,15 @@ export default function AdminClient() {
   const [editName, setEditName] = useState('')
   const [nameMessage, setNameMessage] = useState('')
   const [previewKey, setPreviewKey] = useState(0)
+  const [copied, setCopied] = useState(false)
+
+  const normalizeToHalfWidthNumber = (value) => {
+    return value
+      .replace(/[０-９]/g, (s) =>
+        String.fromCharCode(s.charCodeAt(0) - 0xfee0)
+      )
+      .replace(/[^0-9]/g, '')
+  }
 
   const refreshPreview = () => {
     setPreviewKey((prev) => prev + 1)
@@ -20,6 +29,7 @@ export default function AdminClient() {
   const searchUser = async () => {
     setMessage('')
     setNameMessage('')
+    setCopied(false)
 
     if (!userId) {
       setUser(null)
@@ -48,6 +58,7 @@ export default function AdminClient() {
 
   const createCard = async () => {
     setCreateMessage('')
+    setCopied(false)
 
     const { data, error } = await supabase
       .from('users')
@@ -73,6 +84,7 @@ export default function AdminClient() {
 
   const saveName = async () => {
     setNameMessage('')
+    setCopied(false)
 
     if (!user) {
       setNameMessage('先にカードを検索してください')
@@ -125,6 +137,22 @@ export default function AdminClient() {
     setUser(data)
     setMessage(`スタンプ数を ${data.stamp_count} に更新しました`)
     refreshPreview()
+    setCopied(false)
+  }
+
+  const copyCardUrl = async () => {
+    if (!user) return
+
+    const fullUrl = `${window.location.origin}/card/${user.user_id}`
+
+    try {
+      await navigator.clipboard.writeText(fullUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (error) {
+      setCopied(false)
+      setMessage('URLのコピーに失敗しました')
+    }
   }
 
   const logout = async () => {
@@ -153,6 +181,7 @@ export default function AdminClient() {
     borderRadius: '14px',
     border: '1px solid #dcbeb2',
     background: '#fff',
+    color: '#6b4235',
     minWidth: '280px',
     outline: 'none',
   }
@@ -239,7 +268,7 @@ export default function AdminClient() {
                 margin: 0,
               }}
             >
-              Bistro-Bambi
+              -Bistro-Bambi
             </h1>
             <p
               style={{
@@ -335,9 +364,12 @@ export default function AdminClient() {
               >
                 <input
                   type="text"
+                  inputMode="numeric"
                   placeholder="番号を入力"
                   value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
+                  onChange={(e) =>
+                    setUserId(normalizeToHalfWidthNumber(e.target.value))
+                  }
                   style={inputStyle}
                 />
                 <button onClick={searchUser} style={primaryButtonStyle}>
@@ -459,21 +491,51 @@ export default function AdminClient() {
                   <p style={infoRowStyle}>
                     <strong>現在のスタンプ数：</strong> {user.stamp_count}
                   </p>
-                  <p style={infoRowStyle}>
-                    <strong>カードURL：</strong>{' '}
-                    <a
-                      href={`/card/${user.user_id}`}
-                      target="_blank"
-                      rel="noreferrer"
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                      marginTop: '6px',
+                    }}
+                  >
+                    <p style={{ ...infoRowStyle, margin: 0 }}>
+                      <strong>カードURL：</strong>{' '}
+                      <a
+                        href={`/card/${user.user_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          color: '#c26f5a',
+                          fontWeight: 700,
+                          textDecoration: 'none',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        {`${typeof window !== 'undefined' ? window.location.origin : ''}/card/${user.user_id}`}
+                      </a>
+                    </p>
+
+                    <button
+                      onClick={copyCardUrl}
                       style={{
-                        color: '#c26f5a',
+                        padding: '12px 18px',
+                        fontSize: '18px',
                         fontWeight: 700,
-                        textDecoration: 'none',
+                        borderRadius: '12px',
+                        border: '1px solid #e6c6bb',
+                        background: copied ? '#d98b7b' : '#fff',
+                        color: copied ? '#fff' : '#7a4b3a',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.2s ease',
                       }}
                     >
-                      /card/{user.user_id}
-                    </a>
-                  </p>
+                      {copied ? 'コピー済み' : 'コピー'}
+                    </button>
+                  </div>
                 </>
               ) : (
                 <p
