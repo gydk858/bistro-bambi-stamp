@@ -8,23 +8,98 @@ export default function AdminClient() {
   const [user, setUser] = useState(null)
   const [message, setMessage] = useState('')
 
+  const [createMessage, setCreateMessage] = useState('')
+  const [editName, setEditName] = useState('')
+  const [nameMessage, setNameMessage] = useState('')
+  const [previewKey, setPreviewKey] = useState(0)
+
+  const refreshPreview = () => {
+    setPreviewKey((prev) => prev + 1)
+  }
+
   const searchUser = async () => {
     setMessage('')
+    setNameMessage('')
+
+    if (!userId) {
+      setUser(null)
+      setMessage('番号を入力してください')
+      return
+    }
 
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', Number(userId))
       .maybeSingle()
 
     if (error || !data) {
       setUser(null)
-      setMessage('ユーザーが見つかりません')
+      setEditName('')
+      setMessage('カードが見つかりません')
       return
     }
 
     setUser(data)
-    setMessage('ユーザーを取得しました')
+    setEditName(data.name || '')
+    setMessage('カードを表示しました')
+    refreshPreview()
+  }
+
+  const createCard = async () => {
+    setCreateMessage('')
+
+    const { data, error } = await supabase
+      .from('users')
+      .insert({
+        name: null,
+        stamp_count: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .maybeSingle()
+
+    if (error || !data) {
+      setCreateMessage('カード発行に失敗しました')
+      return
+    }
+
+    setCreateMessage(`カード番号 ${data.user_id} を発行しました`)
+    setUser(data)
+    setUserId(String(data.user_id))
+    setEditName(data.name || '')
+    refreshPreview()
+  }
+
+  const saveName = async () => {
+    setNameMessage('')
+
+    if (!user) {
+      setNameMessage('先にカードを検索してください')
+      return
+    }
+
+    const trimmedName = editName.trim()
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        name: trimmedName === '' ? null : trimmedName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.user_id)
+      .select()
+      .maybeSingle()
+
+    if (error || !data) {
+      setNameMessage('氏名の保存に失敗しました')
+      return
+    }
+
+    setUser(data)
+    setEditName(data.name || '')
+    setNameMessage('氏名を保存しました')
+    refreshPreview()
   }
 
   const updateStampCount = async (diff) => {
@@ -43,12 +118,13 @@ export default function AdminClient() {
       .maybeSingle()
 
     if (error || !data) {
-      setMessage('更新に失敗しました')
+      setMessage('スタンプ更新に失敗しました')
       return
     }
 
     setUser(data)
     setMessage(`スタンプ数を ${data.stamp_count} に更新しました`)
+    refreshPreview()
   }
 
   const logout = async () => {
@@ -56,39 +132,435 @@ export default function AdminClient() {
     window.location.href = '/admin/login'
   }
 
+  const cardBoxStyle = {
+    background: '#fffaf8',
+    border: '1px solid #f0d9d2',
+    borderRadius: '20px',
+    padding: '24px',
+    boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
+  }
+
+  const sectionTitleStyle = {
+    fontSize: '28px',
+    fontWeight: 800,
+    color: '#7a4b3a',
+    marginBottom: '14px',
+  }
+
+  const inputStyle = {
+    padding: '16px 18px',
+    fontSize: '20px',
+    borderRadius: '14px',
+    border: '1px solid #dcbeb2',
+    background: '#fff',
+    minWidth: '280px',
+    outline: 'none',
+  }
+
+  const primaryButtonStyle = {
+    padding: '16px 24px',
+    fontSize: '20px',
+    fontWeight: 700,
+    borderRadius: '14px',
+    border: 'none',
+    background: '#d98b7b',
+    color: '#fff',
+    cursor: 'pointer',
+    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
+  }
+
+  const subButtonStyle = {
+    padding: '16px 24px',
+    fontSize: '20px',
+    fontWeight: 700,
+    borderRadius: '14px',
+    border: '1px solid #e6c6bb',
+    background: '#fff',
+    color: '#7a4b3a',
+    cursor: 'pointer',
+  }
+
+  const stampButtonStyle = {
+    padding: '18px 28px',
+    fontSize: '28px',
+    fontWeight: 800,
+    borderRadius: '18px',
+    border: 'none',
+    background: '#f3b6a6',
+    color: '#6a3d2f',
+    cursor: 'pointer',
+    minWidth: '110px',
+    boxShadow: '0 8px 20px rgba(243, 182, 166, 0.30)',
+  }
+
+  const infoRowStyle = {
+    fontSize: '22px',
+    lineHeight: 1.8,
+    color: '#5f4137',
+    margin: 0,
+  }
+
   return (
-    <div style={{ padding: '24px' }}>
-      <h1>スタンプ管理画面</h1>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
+        padding: '32px',
+        color: '#5f4137',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: '1500px',
+          margin: '0 auto',
+        }}
+      >
+        <div
+          style={{
+            background: '#fff6f1',
+            border: '1px solid #f2ddd5',
+            borderRadius: '28px',
+            padding: '28px 32px',
+            marginBottom: '28px',
+            boxShadow: '0 12px 30px rgba(201, 157, 145, 0.10)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '20px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                fontSize: '42px',
+                fontWeight: 900,
+                color: '#7a4b3a',
+                margin: 0,
+              }}
+            >
+              Bistro-Bambi
+            </h1>
+            <p
+              style={{
+                margin: '10px 0 0 0',
+                fontSize: '22px',
+                color: '#9a6b5b',
+              }}
+            >
+              スタンプカード管理画面
+            </p>
+          </div>
 
-      <div style={{ marginBottom: '16px' }}>
-        <button onClick={logout}>ログアウト</button>
-      </div>
+          <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <a
+              href="/admin/settings"
+              style={{
+                padding: '16px 24px',
+                fontSize: '20px',
+                fontWeight: 700,
+                borderRadius: '14px',
+                border: '1px solid #e6c6bb',
+                background: '#fff',
+                color: '#7a4b3a',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              管理者画面
+            </a>
 
-      <div style={{ marginBottom: '16px' }}>
-        <input
-          type="text"
-          placeholder="user_id を入力"
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          style={{ padding: '8px', marginRight: '8px' }}
-        />
-        <button onClick={searchUser}>検索</button>
-      </div>
-
-      {message && <p>{message}</p>}
-
-      {user && (
-        <div style={{ marginTop: '24px' }}>
-          <p><strong>user_id:</strong> {user.user_id}</p>
-          <p><strong>名前:</strong> {user.name}</p>
-          <p><strong>現在のスタンプ数:</strong> {user.stamp_count}</p>
-
-          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-            <button onClick={() => updateStampCount(-1)}>-1</button>
-            <button onClick={() => updateStampCount(1)}>+1</button>
+            <button onClick={logout} style={subButtonStyle}>
+              ログアウト
+            </button>
           </div>
         </div>
-      )}
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.05fr 1.35fr',
+            gap: '28px',
+            alignItems: 'start',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={cardBoxStyle}>
+              <div style={sectionTitleStyle}>① カード新規発行</div>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
+                まずは名前未登録のカードを発行します。
+              </p>
+
+              <button onClick={createCard} style={primaryButtonStyle}>
+                カード新規発行
+              </button>
+
+              {createMessage && (
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
+                  {createMessage}
+                </p>
+              )}
+            </div>
+
+            <div style={cardBoxStyle}>
+              <div style={sectionTitleStyle}>② カード検索</div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'center',
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="番号を入力"
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                  style={inputStyle}
+                />
+                <button onClick={searchUser} style={primaryButtonStyle}>
+                  検索
+                </button>
+              </div>
+
+              {message && (
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
+                  {message}
+                </p>
+              )}
+            </div>
+
+            {user && (
+              <>
+                <div style={cardBoxStyle}>
+                  <div style={sectionTitleStyle}>③ 氏名登録・修正</div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <input
+                      type="text"
+                      placeholder="氏名を入力"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      style={{ ...inputStyle, minWidth: '320px' }}
+                    />
+                    <button onClick={saveName} style={primaryButtonStyle}>
+                      氏名を保存
+                    </button>
+                  </div>
+
+                  <p
+                    style={{
+                      fontSize: '18px',
+                      color: '#9a6b5b',
+                      marginTop: '14px',
+                      marginBottom: 0,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    空欄で保存すると、氏名未登録に戻せます。
+                  </p>
+
+                  {nameMessage && (
+                    <p
+                      style={{
+                        marginTop: '18px',
+                        fontSize: '20px',
+                        fontWeight: 700,
+                        color: '#7a4b3a',
+                        background: '#fff',
+                        padding: '14px 16px',
+                        borderRadius: '14px',
+                        border: '1px solid #f0d9d2',
+                      }}
+                    >
+                      {nameMessage}
+                    </p>
+                  )}
+                </div>
+
+                <div style={cardBoxStyle}>
+                  <div style={sectionTitleStyle}>④ スタンプ更新</div>
+                  <p
+                    style={{
+                      fontSize: '20px',
+                      color: '#8a6457',
+                      marginTop: 0,
+                      marginBottom: '18px',
+                    }}
+                  >
+                    来店時にスタンプ数を調整します。
+                  </p>
+
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <button onClick={() => updateStampCount(-1)} style={stampButtonStyle}>
+                      -1
+                    </button>
+                    <button onClick={() => updateStampCount(1)} style={stampButtonStyle}>
+                      +1
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={cardBoxStyle}>
+              <div style={sectionTitleStyle}>カード情報</div>
+
+              {user ? (
+                <>
+                  <p style={infoRowStyle}>
+                    <strong>番号：</strong> {user.user_id}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>氏名：</strong> {user.name || '未登録'}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>現在のスタンプ数：</strong> {user.stamp_count}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>カードURL：</strong>{' '}
+                    <a
+                      href={`/card/${user.user_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        color: '#c26f5a',
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      /card/{user.user_id}
+                    </a>
+                  </p>
+                </>
+              ) : (
+                <p
+                  style={{
+                    fontSize: '22px',
+                    color: '#9a6b5b',
+                    margin: 0,
+                    lineHeight: 1.8,
+                  }}
+                >
+                  カードを検索すると、ここに情報が表示されます。
+                </p>
+              )}
+            </div>
+
+            <div style={cardBoxStyle}>
+              <div style={sectionTitleStyle}>カード画像プレビュー</div>
+
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
+                氏名保存やスタンプ更新後は自動で反映されます。
+              </p>
+
+              {user ? (
+                <>
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      background: '#fff',
+                      padding: '18px',
+                      borderRadius: '18px',
+                      border: '1px solid #efd8d0',
+                    }}
+                  >
+                    <img
+                      src={`/card/${user.user_id}?preview=${previewKey}`}
+                      alt={`カード ${user.user_id}`}
+                      style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        borderRadius: '16px',
+                        border: '1px solid #ead0c7',
+                        display: 'block',
+                        background: '#fff',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: '18px' }}>
+                    <button onClick={refreshPreview} style={subButtonStyle}>
+                      プレビュー再読み込み
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    background: '#fff',
+                    border: '1px dashed #e0beb3',
+                    borderRadius: '18px',
+                    padding: '42px 24px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: '24px',
+                      color: '#9a6b5b',
+                      margin: 0,
+                      lineHeight: 1.8,
+                    }}
+                  >
+                    カード検索後に、ここへ大きくプレビュー表示されます。
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
