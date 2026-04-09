@@ -7,26 +7,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// 位置調整
-const NAME_X = 70;
-const NAME_Y = 72;
-const NAME_FONT_SIZE = 34;
-
-const ID_X = 820;
-const ID_Y = 72;
-const ID_FONT_SIZE = 24;
-
-// 表示領域
-const NAME_BOX_X = 40;
-const NAME_BOX_Y = 24;
-const NAME_BOX_WIDTH = 520;
-const NAME_BOX_HEIGHT = 64;
-
-const ID_BOX_X = 790;
-const ID_BOX_Y = 24;
-const ID_BOX_WIDTH = 240;
-const ID_BOX_HEIGHT = 56;
-
 const MAX_NAME_LENGTH = 12;
 
 function escapeXml(value) {
@@ -98,14 +78,19 @@ export async function POST(req, context) {
     }
 
     const sourceBuffer = Buffer.from(await sourceFile.arrayBuffer());
-
     const image = sharp(sourceBuffer);
     const metadata = await image.metadata();
 
     const width = metadata.width ?? 1075;
     const height = metadata.height ?? 650;
 
-    const fontPath = path.join(process.cwd(), "public", "fonts", "NotoSansJP-Regular.ttf");
+    const fontPath = path.join(
+      process.cwd(),
+      "public",
+      "fonts",
+      "NotoSansJP-Regular.ttf"
+    );
+
     const fontBuffer = await readFile(fontPath);
     const fontBase64 = fontBuffer.toString("base64");
 
@@ -120,48 +105,47 @@ export async function POST(req, context) {
             @font-face {
               font-family: 'CardFont';
               src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
-              font-weight: normal;
-              font-style: normal;
             }
 
-            .name {
-              font-size: ${NAME_FONT_SIZE}px;
+            .nameShadow {
+              font-family: 'CardFont', sans-serif;
+              font-size: 30px;
               font-weight: 700;
-              fill: #7b4b3a;
-              font-family: 'CardFont';
+              fill: rgba(255,255,255,0.78);
             }
 
-            .id {
-              font-size: ${ID_FONT_SIZE}px;
+            .nameText {
+              font-family: 'CardFont', sans-serif;
+              font-size: 30px;
               font-weight: 700;
               fill: #7b4b3a;
-              font-family: 'CardFont';
+            }
+
+            .idShadow {
+              font-family: 'CardFont', sans-serif;
+              font-size: 30px;
+              font-weight: 700;
+              fill: rgba(255,255,255,0.78);
+              text-anchor: end;
+            }
+
+            .idText {
+              font-family: 'CardFont', sans-serif;
+              font-size: 30px;
+              font-weight: 700;
+              fill: #8b5b4a;
+              text-anchor: end;
             }
           </style>
         </defs>
 
-        <rect
-          x="${NAME_BOX_X}"
-          y="${NAME_BOX_Y}"
-          width="${NAME_BOX_WIDTH}"
-          height="${NAME_BOX_HEIGHT}"
-          rx="16"
-          ry="16"
-          fill="rgba(255,255,255,0.82)"
-        />
+        <!-- 名前：1個目スタンプの左揃え -->
+        <text x="62" y="53" class="nameShadow">${displayName} 様</text>
+        <text x="60" y="51" class="nameText">${displayName} 様</text>
 
-        <rect
-          x="${ID_BOX_X}"
-          y="${ID_BOX_Y}"
-          width="${ID_BOX_WIDTH}"
-          height="${ID_BOX_HEIGHT}"
-          rx="16"
-          ry="16"
-          fill="rgba(255,255,255,0.82)"
-        />
-
-        <text x="${NAME_X}" y="${NAME_Y}" class="name">${displayName}</text>
-        <text x="${ID_X}" y="${ID_Y}" class="id">ID: ${displayId}</text>
+        <!-- ID：5個目スタンプの右揃え -->
+        <text x="995" y="53" class="idShadow">No. ${displayId}</text>
+        <text x="993" y="51" class="idText">No. ${displayId}</text>
       </svg>
     `;
 
@@ -179,7 +163,7 @@ export async function POST(req, context) {
     const { error: uploadError } = await supabase.storage
       .from("stamp-images")
       .upload(targetPath, resultBuffer, {
-        cacheControl: "60",
+        cacheControl: "1",
         contentType: "image/png",
         upsert: true,
       });
