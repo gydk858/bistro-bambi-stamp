@@ -1,109 +1,143 @@
-import { ImageResponse } from 'next/og'
-import { supabase } from '@/lib/supabase'
+import { ImageResponse } from "next/og";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs";
 
-export async function GET(request, { params }) {
-  const rawUserId = await params.user_id
-  const userId = String(rawUserId).replace('.png', '')
+// ここは実際の画像を見ながら微調整してください
+const CARD_WIDTH = 1075;
+const CARD_HEIGHT = 650;
 
-  const { data: user, error: userError } = await supabase
-    .from('users')
-    .select('*')
-    .eq('user_id', Number(userId))
-    .maybeSingle()
+// 名前表示位置
+const NAME_LEFT = 120;
+const NAME_TOP = 580;
+const NAME_FONT_SIZE = 34;
 
-  if (userError || !user) {
-    return new Response('User not found', { status: 404 })
-  }
+// ID表示位置
+const ID_LEFT = 820;
+const ID_TOP = 580;
+const ID_FONT_SIZE = 28;
 
-  const { data: image, error: imageError } = await supabase
-    .from('stamp_images')
-    .select('*')
-    .eq('stamp_count', user.stamp_count)
-    .maybeSingle()
+export async function GET(req, context) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (imageError || !image) {
-    return new Response('Image not found', { status: 404 })
-  }
+    if (!supabaseUrl) {
+      return new Response("NEXT_PUBLIC_SUPABASE_URL is missing", { status: 500 });
+    }
 
-  const baseImageUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/stamp-images/${image.image_path}`
-  const displayName = user.name || '未登録'
+    if (!serviceRoleKey) {
+      return new Response("SUPABASE_SERVICE_ROLE_KEY is missing", { status: 500 });
+    }
 
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: '910px',
-          height: '550px',
-          display: 'flex',
-          position: 'relative',
-          backgroundColor: '#ffffff',
-          overflow: 'hidden',
-        }}
-      >
-        <img
-          src={baseImageUrl}
-          alt="stamp card"
-          style={{
-            width: '910px',
-            height: '550px',
-            objectFit: 'cover',
-          }}
-        />
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    const { user_id } = await context.params;
+    const userId = Number(user_id);
+
+    if (!Number.isFinite(userId)) {
+      return new Response(`Invalid user_id: ${user_id}`, { status: 400 });
+    }
+
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("user_id, name, stamp_count")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return new Response(`Supabase error: ${error.message}`, { status: 500 });
+    }
+
+    if (!user) {
+      return new Response(`User not found: ${userId}`, { status: 404 });
+    }
+
+    const stampCount = Math.max(0, Math.min(10, Number(user.stamp_count ?? 0)));
+    const filePath = `cards/${stampCount}.png`;
+
+    const { data: publicUrlData } = supabase.storage
+      .from("stamp-images")
+      .getPublicUrl(filePath);
+
+    const baseImageUrl = publicUrlData?.publicUrl;
+
+    if (!baseImageUrl) {
+      return new Response(`Public URL not found: ${filePath}`, { status: 500 });
+    }
+
+    const displayName = user.name ?? "";
+    const displayId = String(user.user_id ?? userId);
+
+    return new ImageResponse(
+      (
         <div
           style={{
-            position: 'absolute',
-            top: '22px',
-            left: '24px',
-            right: '24px',
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: '12px',
+            width: `${CARD_WIDTH}px`,
+            height: `${CARD_HEIGHT}px`,
+            display: "flex",
+            position: "relative",
           }}
         >
+          <img
+            src={baseImageUrl}
+            alt="stamp card"
+            width={CARD_WIDTH}
+            height={CARD_HEIGHT}
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: `${CARD_WIDTH}px`,
+              height: `${CARD_HEIGHT}px`,
+            }}
+          />
+
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: '26px',
-              fontWeight: 800,
-              color: '#5a3318',
-              backgroundColor: 'rgba(255,248,220,0.92)',
-              border: '3px solid #d98b3a',
-              borderRadius: '999px',
-              padding: '8px 16px',
-              boxShadow: '0 3px 0 rgba(140, 80, 20, 0.25)',
+              position: "absolute",
+              left: `${NAME_LEFT}px`,
+              top: `${NAME_TOP}px`,
+              display: "flex",
+              fontSize: `${NAME_FONT_SIZE}px`,
+              fontWeight: 700,
+              color: "#7b4b3a",
+              letterSpacing: "1px",
+              maxWidth: "520px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
             }}
           >
-            番号：{user.user_id}
+            {displayName}
           </div>
 
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: '30px',
-              fontWeight: 800,
-              color: '#5a3318',
-              backgroundColor: 'rgba(255,248,220,0.92)',
-              border: '3px solid #d98b3a',
-              borderRadius: '999px',
-              padding: '8px 18px',
-              boxShadow: '0 3px 0 rgba(140, 80, 20, 0.25)',
-              maxWidth: '590px',
+              position: "absolute",
+              left: `${ID_LEFT}px`,
+              top: `${ID_TOP}px`,
+              display: "flex",
+              fontSize: `${ID_FONT_SIZE}px`,
+              fontWeight: 700,
+              color: "#7b4b3a",
+              letterSpacing: "1px",
             }}
           >
-            氏名：{displayName}
+            ID: {displayId}
           </div>
         </div>
-      </div>
-    ),
-    {
-      width: 910,
-      height: 550,
-    }
-  )
+      ),
+      {
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+      }
+    );
+  } catch (error) {
+    console.error("route error:", error);
+    return new Response(
+      `Failed to generate image: ${error instanceof Error ? error.message : String(error)}`,
+      { status: 500 }
+    );
+  }
 }
