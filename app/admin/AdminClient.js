@@ -33,6 +33,20 @@ export default function AdminClient() {
     return `${SUPABASE_PUBLIC_CARD_BASE}/${targetUserId}.png`
   }
 
+  const syncCardImage = async (targetUserId) => {
+    const syncRes = await fetch(`/api/sync-card/${targetUserId}`, {
+      method: 'POST',
+    })
+
+    const syncJson = await syncRes.json()
+
+    if (!syncRes.ok || !syncJson.ok) {
+      throw new Error(syncJson.error || 'カード画像の同期に失敗しました')
+    }
+
+    return syncJson
+  }
+
   const searchUser = async () => {
     setMessage('')
     setNameMessage('')
@@ -82,14 +96,14 @@ export default function AdminClient() {
       return
     }
 
-    const syncRes = await fetch(`/api/sync-card/${data.user_id}`, {
-      method: 'POST',
-    })
-
-    const syncJson = await syncRes.json()
-
-    if (!syncRes.ok || !syncJson.ok) {
-      setCreateMessage(syncJson.error || 'カード画像の初期作成に失敗しました')
+    try {
+      await syncCardImage(data.user_id)
+    } catch (error) {
+      setCreateMessage(
+        error instanceof Error
+          ? error.message
+          : 'カード画像の初期作成に失敗しました'
+      )
       return
     }
 
@@ -126,6 +140,17 @@ export default function AdminClient() {
       return
     }
 
+    try {
+      await syncCardImage(data.user_id)
+    } catch (error) {
+      setNameMessage(
+        error instanceof Error
+          ? error.message
+          : 'カード画像の同期に失敗しました'
+      )
+      return
+    }
+
     setUser(data)
     setEditName(data.name || '')
     setNameMessage('氏名を保存しました')
@@ -152,14 +177,14 @@ export default function AdminClient() {
       return
     }
 
-    const syncRes = await fetch(`/api/sync-card/${user.user_id}`, {
-      method: 'POST',
-    })
-
-    const syncJson = await syncRes.json()
-
-    if (!syncRes.ok || !syncJson.ok) {
-      setMessage(syncJson.error || 'カード画像の同期に失敗しました')
+    try {
+      await syncCardImage(data.user_id)
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'カード画像の同期に失敗しました'
+      )
       return
     }
 
