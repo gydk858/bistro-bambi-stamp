@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+const SUPABASE_PUBLIC_CARD_BASE =
+  'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live'
+
 export default function AdminClient() {
   const [userId, setUserId] = useState('')
   const [user, setUser] = useState(null)
@@ -24,6 +27,10 @@ export default function AdminClient() {
 
   const refreshPreview = () => {
     setPreviewKey((prev) => prev + 1)
+  }
+
+  const getLiveCardUrl = (targetUserId) => {
+    return `${SUPABASE_PUBLIC_CARD_BASE}/${targetUserId}.png`
   }
 
   const searchUser = async () => {
@@ -75,6 +82,17 @@ export default function AdminClient() {
       return
     }
 
+    const syncRes = await fetch(`/api/sync-card/${data.user_id}`, {
+      method: 'POST',
+    })
+
+    const syncJson = await syncRes.json()
+
+    if (!syncRes.ok || !syncJson.ok) {
+      setCreateMessage(syncJson.error || 'カード画像の初期作成に失敗しました')
+      return
+    }
+
     setCreateMessage(`カード番号 ${data.user_id} を発行しました`)
     setUser(data)
     setUserId(String(data.user_id))
@@ -117,7 +135,7 @@ export default function AdminClient() {
   const updateStampCount = async (diff) => {
     if (!user) return
 
-    const newCount = Math.max(0, user.stamp_count + diff)
+    const newCount = Math.max(0, Math.min(10, user.stamp_count + diff))
 
     const { data, error } = await supabase
       .from('users')
@@ -134,6 +152,17 @@ export default function AdminClient() {
       return
     }
 
+    const syncRes = await fetch(`/api/sync-card/${user.user_id}`, {
+      method: 'POST',
+    })
+
+    const syncJson = await syncRes.json()
+
+    if (!syncRes.ok || !syncJson.ok) {
+      setMessage(syncJson.error || 'カード画像の同期に失敗しました')
+      return
+    }
+
     setUser(data)
     setMessage(`スタンプ数を ${data.stamp_count} に更新しました`)
     refreshPreview()
@@ -143,7 +172,7 @@ export default function AdminClient() {
   const copyCardUrl = async () => {
     if (!user) return
 
-    const fullUrl = `${window.location.origin}/card/${user.user_id}.png`
+    const fullUrl = getLiveCardUrl(user.user_id)
 
     try {
       await navigator.clipboard.writeText(fullUrl)
@@ -504,7 +533,7 @@ export default function AdminClient() {
                     <p style={{ ...infoRowStyle, margin: 0 }}>
                       <strong>カードURL：</strong>{' '}
                       <a
-                        href={`/card/${user.user_id}.png`}
+                        href={getLiveCardUrl(user.user_id)}
                         target="_blank"
                         rel="noreferrer"
                         style={{
@@ -514,7 +543,7 @@ export default function AdminClient() {
                           wordBreak: 'break-all',
                         }}
                       >
-                        {`${typeof window !== 'undefined' ? window.location.origin : ''}/card/${user.user_id}.png`}
+                        {getLiveCardUrl(user.user_id)}
                       </a>
                     </p>
 
@@ -578,7 +607,7 @@ export default function AdminClient() {
                     }}
                   >
                     <img
-                      src={`/card/${user.user_id}.png?preview=${previewKey}`}
+                      src={`${getLiveCardUrl(user.user_id)}?preview=${previewKey}`}
                       alt={`カード ${user.user_id}`}
                       style={{
                         width: '100%',
