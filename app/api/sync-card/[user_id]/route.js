@@ -1,20 +1,32 @@
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
+import { readFile } from "fs/promises";
+import path from "path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// 文字表示位置はここで調整できます
+// 位置調整
 const NAME_X = 70;
-const NAME_Y = 60;
+const NAME_Y = 72;
 const NAME_FONT_SIZE = 34;
 
-const ID_X = 860;
-const ID_Y = 60;
-const ID_FONT_SIZE = 26;
+const ID_X = 820;
+const ID_Y = 72;
+const ID_FONT_SIZE = 24;
 
-// 表示名が長すぎると崩れるので必要に応じて調整
+// 表示領域
+const NAME_BOX_X = 40;
+const NAME_BOX_Y = 24;
+const NAME_BOX_WIDTH = 520;
+const NAME_BOX_HEIGHT = 64;
+
+const ID_BOX_X = 790;
+const ID_BOX_Y = 24;
+const ID_BOX_WIDTH = 240;
+const ID_BOX_HEIGHT = 56;
+
 const MAX_NAME_LENGTH = 12;
 
 function escapeXml(value) {
@@ -93,26 +105,60 @@ export async function POST(req, context) {
     const width = metadata.width ?? 1075;
     const height = metadata.height ?? 650;
 
+    const fontPath = path.join(process.cwd(), "public", "fonts", "NotoSansJP-Regular.ttf");
+    const fontBuffer = await readFile(fontPath);
+    const fontBase64 = fontBuffer.toString("base64");
+
     const displayNameRaw = user.name ? String(user.name) : "未登録";
     const displayName = escapeXml(displayNameRaw.slice(0, MAX_NAME_LENGTH));
     const displayId = escapeXml(String(user.user_id ?? userId));
 
     const overlaySvg = `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <style>
-          .name {
-            font-size: ${NAME_FONT_SIZE}px;
-            font-weight: 700;
-            fill: #7b4b3a;
-            font-family: sans-serif;
-          }
-          .id {
-            font-size: ${ID_FONT_SIZE}px;
-            font-weight: 700;
-            fill: #7b4b3a;
-            font-family: sans-serif;
-          }
-        </style>
+        <defs>
+          <style>
+            @font-face {
+              font-family: 'CardFont';
+              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
+              font-weight: normal;
+              font-style: normal;
+            }
+
+            .name {
+              font-size: ${NAME_FONT_SIZE}px;
+              font-weight: 700;
+              fill: #7b4b3a;
+              font-family: 'CardFont';
+            }
+
+            .id {
+              font-size: ${ID_FONT_SIZE}px;
+              font-weight: 700;
+              fill: #7b4b3a;
+              font-family: 'CardFont';
+            }
+          </style>
+        </defs>
+
+        <rect
+          x="${NAME_BOX_X}"
+          y="${NAME_BOX_Y}"
+          width="${NAME_BOX_WIDTH}"
+          height="${NAME_BOX_HEIGHT}"
+          rx="16"
+          ry="16"
+          fill="rgba(255,255,255,0.82)"
+        />
+
+        <rect
+          x="${ID_BOX_X}"
+          y="${ID_BOX_Y}"
+          width="${ID_BOX_WIDTH}"
+          height="${ID_BOX_HEIGHT}"
+          rx="16"
+          ry="16"
+          fill="rgba(255,255,255,0.82)"
+        />
 
         <text x="${NAME_X}" y="${NAME_Y}" class="name">${displayName}</text>
         <text x="${ID_X}" y="${ID_Y}" class="id">ID: ${displayId}</text>
