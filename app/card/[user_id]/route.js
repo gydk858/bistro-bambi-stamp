@@ -1,21 +1,8 @@
-import { ImageResponse } from "next/og";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
-
-// ここは実際の画像を見ながら微調整してください
-const CARD_WIDTH = 1075;
-const CARD_HEIGHT = 650;
-
-// 名前表示位置
-const NAME_LEFT = 120;
-const NAME_TOP = 580;
-const NAME_FONT_SIZE = 34;
-
-// ID表示位置
-const ID_LEFT = 820;
-const ID_TOP = 580;
-const ID_FONT_SIZE = 28;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req, context) {
   try {
@@ -41,7 +28,7 @@ export async function GET(req, context) {
 
     const { data: user, error } = await supabase
       .from("users")
-      .select("user_id, name, stamp_count")
+      .select("user_id, stamp_count")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -57,86 +44,32 @@ export async function GET(req, context) {
     const stampCount = Math.max(0, Math.min(10, Number(user.stamp_count ?? 0)));
     const filePath = `cards/${stampCount}.png`;
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: fileData, error: downloadError } = await supabase.storage
       .from("stamp-images")
-      .getPublicUrl(filePath);
+      .download(filePath);
 
-    const baseImageUrl = publicUrlData?.publicUrl;
-
-    if (!baseImageUrl) {
-      return new Response(`Public URL not found: ${filePath}`, { status: 500 });
+    if (downloadError || !fileData) {
+      console.error("Storage download error:", downloadError);
+      return new Response(`Image not found: ${filePath}`, { status: 404 });
     }
 
-    const displayName = user.name ?? "";
-    const displayId = String(user.user_id ?? userId);
+    const arrayBuffer = await fileData.arrayBuffer();
 
-    return new ImageResponse(
-      (
-        <div
-          style={{
-            width: `${CARD_WIDTH}px`,
-            height: `${CARD_HEIGHT}px`,
-            display: "flex",
-            position: "relative",
-          }}
-        >
-          <img
-            src={baseImageUrl}
-            alt="stamp card"
-            width={CARD_WIDTH}
-            height={CARD_HEIGHT}
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              width: `${CARD_WIDTH}px`,
-              height: `${CARD_HEIGHT}px`,
-            }}
-          />
-
-          <div
-            style={{
-              position: "absolute",
-              left: `${NAME_LEFT}px`,
-              top: `${NAME_TOP}px`,
-              display: "flex",
-              fontSize: `${NAME_FONT_SIZE}px`,
-              fontWeight: 700,
-              color: "#7b4b3a",
-              letterSpacing: "1px",
-              maxWidth: "520px",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-            }}
-          >
-            {displayName}
-          </div>
-
-          <div
-            style={{
-              position: "absolute",
-              left: `${ID_LEFT}px`,
-              top: `${ID_TOP}px`,
-              display: "flex",
-              fontSize: `${ID_FONT_SIZE}px`,
-              fontWeight: 700,
-              color: "#7b4b3a",
-              letterSpacing: "1px",
-            }}
-          >
-            ID: {displayId}
-          </div>
-        </div>
-      ),
-      {
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
-      }
-    );
+    return new Response(arrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Disposition": 'inline; filename="card.png"',
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Surrogate-Control": "no-store",
+      },
+    });
   } catch (error) {
     console.error("route error:", error);
     return new Response(
-      `Failed to generate image: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to return image: ${error instanceof Error ? error.message : String(error)}`,
       { status: 500 }
     );
   }
