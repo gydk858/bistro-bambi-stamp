@@ -143,7 +143,7 @@ export default function AdminClient() {
   const copyCardUrl = async () => {
     if (!user) return
 
-    const fullUrl = `${window.location.origin}/card/${user.user_id}`
+    const fullUrl = `${window.location.origin}/card/${user.user_id}.png`
 
     try {
       await navigator.clipboard.writeText(fullUrl)
@@ -504,7 +504,7 @@ export default function AdminClient() {
                     <p style={{ ...infoRowStyle, margin: 0 }}>
                       <strong>カードURL：</strong>{' '}
                       <a
-                        href={`/card/${user.user_id}`}
+                        href={`/card/${user.user_id}.png`}
                         target="_blank"
                         rel="noreferrer"
                         style={{
@@ -514,7 +514,7 @@ export default function AdminClient() {
                           wordBreak: 'break-all',
                         }}
                       >
-                        {`${typeof window !== 'undefined' ? window.location.origin : ''}/card/${user.user_id}`}
+                        {`${typeof window !== 'undefined' ? window.location.origin : ''}/card/${user.user_id}.png`}
                       </a>
                     </p>
 
@@ -578,7 +578,7 @@ export default function AdminClient() {
                     }}
                   >
                     <img
-                      src={`/card/${user.user_id}?preview=${previewKey}`}
+                      src={`/card/${user.user_id}.png?preview=${previewKey}`}
                       alt={`カード ${user.user_id}`}
                       style={{
                         width: '100%',

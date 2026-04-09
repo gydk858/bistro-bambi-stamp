@@ -4,12 +4,13 @@ import { supabase } from '@/lib/supabase'
 export const runtime = 'nodejs'
 
 export async function GET(request, { params }) {
-  const { user_id } = await params
+  const rawUserId = await params.user_id
+  const userId = String(rawUserId).replace('.png', '')
 
   const { data: user, error: userError } = await supabase
     .from('users')
     .select('*')
-    .eq('user_id', Number(user_id))
+    .eq('user_id', Number(userId))
     .maybeSingle()
 
   if (userError || !user) {
@@ -67,7 +68,7 @@ export async function GET(request, { params }) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              fontSize: '16px',
+              fontSize: '26px',
               fontWeight: 800,
               color: '#5a3318',
               backgroundColor: 'rgba(255,248,220,0.92)',
@@ -84,7 +85,7 @@ export async function GET(request, { params }) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              fontSize: '20px',
+              fontSize: '30px',
               fontWeight: 800,
               color: '#5a3318',
               backgroundColor: 'rgba(255,248,220,0.92)',
