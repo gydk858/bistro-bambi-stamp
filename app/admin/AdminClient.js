@@ -15,7 +15,7 @@ export default function AdminClient() {
   const [editName, setEditName] = useState('')
   const [nameMessage, setNameMessage] = useState('')
   const [previewKey, setPreviewKey] = useState(0)
-  const [copied, setCopied] = useState(false)
+  const [copiedFixed, setCopiedFixed] = useState(false)
 
   const normalizeToHalfWidthNumber = (value) => {
     return value
@@ -29,8 +29,18 @@ export default function AdminClient() {
     setPreviewKey((prev) => prev + 1)
   }
 
-  const getLiveCardUrl = (targetUserId) => {
+  const getFixedCardUrl = (targetUserId) => {
     return `${SUPABASE_PUBLIC_CARD_BASE}/${targetUserId}.png`
+  }
+
+  const getPreviewUrl = (targetUser) => {
+    if (!targetUser) return ''
+    const fixedUrl = getFixedCardUrl(targetUser.user_id)
+    const version = targetUser.updated_at
+      ? new Date(targetUser.updated_at).getTime()
+      : Date.now()
+
+    return `${fixedUrl}?v=${version}`
   }
 
   const syncCardImage = async (targetUserId) => {
@@ -50,7 +60,7 @@ export default function AdminClient() {
   const searchUser = async () => {
     setMessage('')
     setNameMessage('')
-    setCopied(false)
+    setCopiedFixed(false)
 
     if (!userId) {
       setUser(null)
@@ -79,7 +89,7 @@ export default function AdminClient() {
 
   const createCard = async () => {
     setCreateMessage('')
-    setCopied(false)
+    setCopiedFixed(false)
 
     const { data, error } = await supabase
       .from('users')
@@ -116,7 +126,7 @@ export default function AdminClient() {
 
   const saveName = async () => {
     setNameMessage('')
-    setCopied(false)
+    setCopiedFixed(false)
 
     if (!user) {
       setNameMessage('先にカードを検索してください')
@@ -191,21 +201,21 @@ export default function AdminClient() {
     setUser(data)
     setMessage(`スタンプ数を ${data.stamp_count} に更新しました`)
     refreshPreview()
-    setCopied(false)
+    setCopiedFixed(false)
   }
 
-  const copyCardUrl = async () => {
+  const copyFixedCardUrl = async () => {
     if (!user) return
 
-    const fullUrl = getLiveCardUrl(user.user_id)
+    const fullUrl = getFixedCardUrl(user.user_id)
 
     try {
       await navigator.clipboard.writeText(fullUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setCopiedFixed(true)
+      setTimeout(() => setCopiedFixed(false), 2000)
     } catch (error) {
-      setCopied(false)
-      setMessage('URLのコピーに失敗しました')
+      setCopiedFixed(false)
+      setMessage('固定URLのコピーに失敗しました')
     }
   }
 
@@ -281,6 +291,24 @@ export default function AdminClient() {
     lineHeight: 1.8,
     color: '#5f4137',
     margin: 0,
+  }
+
+  const linkStyle = {
+    color: '#c26f5a',
+    fontWeight: 700,
+    textDecoration: 'none',
+    wordBreak: 'break-all',
+  }
+
+  const copyButtonBaseStyle = {
+    padding: '12px 18px',
+    fontSize: '18px',
+    fontWeight: 700,
+    borderRadius: '12px',
+    border: '1px solid #e6c6bb',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    transition: 'all 0.2s ease',
   }
 
   return (
@@ -546,49 +574,50 @@ export default function AdminClient() {
                     <strong>現在のスタンプ数：</strong> {user.stamp_count}
                   </p>
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      flexWrap: 'wrap',
-                      marginTop: '6px',
-                    }}
-                  >
-                    <p style={{ ...infoRowStyle, margin: 0 }}>
-                      <strong>カードURL：</strong>{' '}
-                      <a
-                        href={getLiveCardUrl(user.user_id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          color: '#c26f5a',
-                          fontWeight: 700,
-                          textDecoration: 'none',
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        {getLiveCardUrl(user.user_id)}
-                      </a>
+                  <div style={{ marginTop: '18px' }}>
+                    <p style={{ ...infoRowStyle, marginBottom: '8px' }}>
+                      <strong>カードURL：</strong>
                     </p>
 
-                    <button
-                      onClick={copyCardUrl}
+                    <div
                       style={{
-                        padding: '12px 18px',
-                        fontSize: '18px',
-                        fontWeight: 700,
-                        borderRadius: '12px',
-                        border: '1px solid #e6c6bb',
-                        background: copied ? '#d98b7b' : '#fff',
-                        color: copied ? '#fff' : '#7a4b3a',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {copied ? 'コピー済み' : 'コピー'}
-                    </button>
+                      <a
+                        href={getFixedCardUrl(user.user_id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={linkStyle}
+                      >
+                        {getFixedCardUrl(user.user_id)}
+                      </a>
+
+                      <button
+                        onClick={copyFixedCardUrl}
+                        style={{
+                          ...copyButtonBaseStyle,
+                          background: copiedFixed ? '#d98b7b' : '#fff',
+                          color: copiedFixed ? '#fff' : '#7a4b3a',
+                        }}
+                      >
+                        {copiedFixed ? 'コピー済み' : 'コピー'}
+                      </button>
+                    </div>
+
+                    <p
+                      style={{
+                        fontSize: '16px',
+                        color: '#9a6b5b',
+                        marginTop: '8px',
+                        marginBottom: 0,
+                      }}
+                    >
+                      コピー機や実運用で使う固定URLです。
+                    </p>
                   </div>
                 </>
               ) : (
@@ -632,7 +661,7 @@ export default function AdminClient() {
                     }}
                   >
                     <img
-                      src={`${getLiveCardUrl(user.user_id)}?preview=${previewKey}`}
+                      src={`${getPreviewUrl(user)}&preview=${previewKey}`}
                       alt={`カード ${user.user_id}`}
                       style={{
                         width: '100%',

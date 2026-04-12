@@ -13,6 +13,56 @@ function clampStampCount(value) {
   return Math.max(0, Math.min(10, Number(value ?? 0)));
 }
 
+async function makeColoredTextImage({
+  text,
+  font,
+  fontfile,
+  width,
+  dpi,
+  align = "left",
+  color = "#000000",
+}) {
+  const textMask = await sharp({
+    text: {
+      text,
+      font,
+      fontfile,
+      width,
+      rgba: true,
+      dpi,
+      align,
+    },
+  })
+    .png()
+    .ensureAlpha()
+    .toBuffer();
+
+  const meta = await sharp(textMask).metadata();
+  const w = meta.width ?? width;
+  const h = meta.height ?? 60;
+
+  const colorImage = await sharp({
+    create: {
+      width: w,
+      height: h,
+      channels: 4,
+      background: color,
+    },
+  })
+    .png()
+    .toBuffer();
+
+  return await sharp(colorImage)
+    .composite([
+      {
+        input: textMask,
+        blend: "dest-in",
+      },
+    ])
+    .png()
+    .toBuffer();
+}
+
 export async function POST(req, context) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -79,7 +129,7 @@ export async function POST(req, context) {
       process.cwd(),
       "public",
       "fonts",
-      "NotoSansJP-Regular.ttf"
+      "rounded-x-mplus-1p-medium.ttf"
     );
 
     await readFile(fontPath);
@@ -88,62 +138,54 @@ export async function POST(req, context) {
     const displayName = `${displayNameRaw.slice(0, MAX_NAME_LENGTH)} 様`;
     const displayId = `No. ${String(user.user_id ?? userId)}`;
 
-    const commonNameTextOptions = {
-      text: displayName,
-      font: "Noto Sans JP",
-      fontfile: fontPath,
-      width: 540,
-      rgba: true,
-      dpi: 170,
-    };
+    const textColor = "#764735";
+    const shadowColor = "#fff8f5";
 
-    const commonIdTextOptions = {
-      text: displayId,
-      font: "Noto Sans JP",
+    const nameTextImage = await makeColoredTextImage({
+      text: displayName,
+      font: "Rounded-X M+ 1p",
       fontfile: fontPath,
-      width: 240,
-      rgba: true,
+      width: 560,
+      dpi: 170,
+      color: textColor,
+    });
+
+    const nameShadowImage = await makeColoredTextImage({
+      text: displayName,
+      font: "Rounded-X M+ 1p",
+      fontfile: fontPath,
+      width: 560,
+      dpi: 170,
+      color: shadowColor,
+    });
+
+    const idTextImage = await makeColoredTextImage({
+      text: displayId,
+      font: "Rounded-X M+ 1p",
+      fontfile: fontPath,
+      width: 260,
       dpi: 170,
       align: "right",
-    };
+      color: textColor,
+    });
 
-    const nameTextImage = await sharp({
-      text: commonNameTextOptions,
-    })
-      .png()
-      .tint("#8a5e4c")
-      .toBuffer();
-
-    const nameShadowImage = await sharp({
-      text: commonNameTextOptions,
-    })
-      .png()
-      .tint("#fffdfb")
-      .toBuffer();
-
-    const idTextImage = await sharp({
-      text: commonIdTextOptions,
-    })
-      .png()
-      .tint("#9a6d59")
-      .toBuffer();
-
-    const idShadowImage = await sharp({
-      text: commonIdTextOptions,
-    })
-      .png()
-      .tint("#fffdfb")
-      .toBuffer();
+    const idShadowImage = await makeColoredTextImage({
+      text: displayId,
+      font: "Rounded-X M+ 1p",
+      fontfile: fontPath,
+      width: 260,
+      dpi: 170,
+      align: "right",
+      color: shadowColor,
+    });
 
     const resultBuffer = await baseImage
       .composite([
-        // 名前: 少し右へ
-        { input: nameShadowImage, left: 76, top: 25 },
-        { input: nameTextImage, left: 75, top: 24 },
+        { input: nameShadowImage, left: 87, top: 26 },
+        { input: nameTextImage, left: 85, top: 24 },
 
-        // ID: もっと右へ
-        { input: idShadowImage, left: 805, top: 25 },
-        { input: idTextImage, left: 804, top: 24 },
+        { input: idShadowImage, left: 917, top: 26 },
+        { input: idTextImage, left: 915, top: 24 },
       ])
       .png()
       .toBuffer();
