@@ -26,6 +26,14 @@ function getPreviewImageUrl(user) {
   return `${fixedUrl}?v=${version}`;
 }
 
+function getOperatorName(body) {
+  const nick = body?.member?.nick;
+  const globalName = body?.user?.global_name ?? body?.member?.user?.global_name;
+  const username = body?.user?.username ?? body?.member?.user?.username;
+
+  return nick || globalName || username || "担当者";
+}
+
 function buildMainEmbed(user, description = "") {
   return {
     embeds: [
@@ -367,6 +375,7 @@ export async function POST(req) {
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
+    const operatorName = getOperatorName(body);
 
     try {
       await sendDeferredResponse(interactionId, interactionToken);
@@ -390,8 +399,8 @@ export async function POST(req) {
 
       const actionMessage =
         action === "add"
-          ? "スタンプを追加しました。"
-          : "スタンプを減らしました。";
+          ? `${operatorName} さんがスタンプを追加しました。`
+          : `${operatorName} さんがスタンプを減らしました。`;
 
       await editOriginalResponse(
         applicationId,
@@ -506,6 +515,7 @@ export async function POST(req) {
   const interactionId = body.id;
   const interactionToken = body.token;
   const applicationId = body.application_id;
+  const operatorName = getOperatorName(body);
 
   try {
     await sendDeferredResponse(interactionId, interactionToken);
@@ -539,8 +549,8 @@ export async function POST(req) {
 
       const actionMessage =
         action === "add"
-          ? "スタンプを追加しました。"
-          : "スタンプを減らしました。";
+          ? `${operatorName} さんがスタンプを追加しました。`
+          : `${operatorName} さんがスタンプを減らしました。`;
 
       await editOriginalResponse(applicationId, interactionToken, {
         content: actionMessage,
@@ -590,7 +600,7 @@ export async function POST(req) {
         interactionToken,
         buildPanelPayload(
           newUser,
-          "新しいスタンプカードを発行しました。名前変更ボタンから氏名登録もできます。"
+          `${operatorName} さんが新しいスタンプカードを発行しました。名前変更ボタンから氏名登録もできます。`
         )
       );
 
