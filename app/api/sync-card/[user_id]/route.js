@@ -9,13 +9,8 @@ export const revalidate = 0;
 
 const MAX_NAME_LENGTH = 12;
 
-function escapeXml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function clampStampCount(value) {
+  return Math.max(0, Math.min(10, Number(value ?? 0)));
 }
 
 export async function POST(req, context) {
@@ -62,7 +57,7 @@ export async function POST(req, context) {
       );
     }
 
-    const stampCount = Math.max(0, Math.min(10, Number(user.stamp_count ?? 0)));
+    const stampCount = clampStampCount(user.stamp_count);
     const sourcePath = `cards/${stampCount}.png`;
     const targetPath = `live/${userId}.png`;
 
@@ -78,8 +73,8 @@ export async function POST(req, context) {
     }
 
     const sourceBuffer = Buffer.from(await sourceFile.arrayBuffer());
-    const image = sharp(sourceBuffer);
-    const metadata = await image.metadata();
+    const baseImage = sharp(sourceBuffer);
+    const metadata = await baseImage.metadata();
 
     const width = metadata.width ?? 1075;
     const height = metadata.height ?? 650;
@@ -91,71 +86,90 @@ export async function POST(req, context) {
       "NotoSansJP-Regular.ttf"
     );
 
-    const fontBuffer = await readFile(fontPath);
-    const fontBase64 = fontBuffer.toString("base64");
+    // フォント存在チェックも兼ねて読む
+    await readFile(fontPath);
 
     const displayNameRaw = user.name ? String(user.name) : "未登録";
-    const displayName = escapeXml(displayNameRaw.slice(0, MAX_NAME_LENGTH));
-    const displayId = escapeXml(String(user.user_id ?? userId));
+    const displayName = `${displayNameRaw.slice(0, MAX_NAME_LENGTH)} 様`;
+    const displayId = `No. ${String(user.user_id ?? userId)}`;
 
-    const overlaySvg = `
-      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <style>
-            @font-face {
-              font-family: 'CardFontJP';
-              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
-            }
+    // 名前文字画像
+    const nameTextImage = await sharp({
+      text: {
+        text: displayName,
+        font: "Noto Sans JP",
+        fontfile: fontPath,
+        width: 520,
+        height: 48,
+        rgba: true,
+        dpi: 144,
+      },
+    })
+      .png()
+      .tint("#7b4b3a")
+      .toBuffer();
 
-            .nameShadow {
-              font-family: 'CardFontJP', sans-serif;
-              font-size: 30px;
-              font-weight: 700;
-              fill: rgba(255,255,255,0.78);
-            }
+    // 名前の白影
+    const nameShadowImage = await sharp({
+      text: {
+        text: displayName,
+        font: "Noto Sans JP",
+        fontfile: fontPath,
+        width: 520,
+        height: 48,
+        rgba: true,
+        dpi: 144,
+      },
+    })
+      .png()
+      .tint("#ffffff")
+      .blur(0.6)
+      .toBuffer();
 
-            .nameText {
-              font-family: 'CardFontJP', sans-serif;
-              font-size: 30px;
-              font-weight: 700;
-              fill: #7b4b3a;
-            }
+    // ID文字画像
+    const idTextImage = await sharp({
+      text: {
+        text: displayId,
+        font: "Noto Sans JP",
+        fontfile: fontPath,
+        width: 220,
+        height: 48,
+        rgba: true,
+        dpi: 144,
+        align: "right",
+      },
+    })
+      .png()
+      .tint("#8b5b4a")
+      .toBuffer();
 
-            .idShadow {
-              font-family: Georgia, 'Times New Roman', serif;
-              font-size: 30px;
-              font-weight: 700;
-              fill: rgba(255,255,255,0.78);
-              text-anchor: end;
-            }
+    // IDの白影
+    const idShadowImage = await sharp({
+      text: {
+        text: displayId,
+        font: "Noto Sans JP",
+        fontfile: fontPath,
+        width: 220,
+        height: 48,
+        rgba: true,
+        dpi: 144,
+        align: "right",
+      },
+    })
+      .png()
+      .tint("#ffffff")
+      .blur(0.6)
+      .toBuffer();
 
-            .idText {
-              font-family: Georgia, 'Times New Roman', serif;
-              font-size: 30px;
-              font-weight: 700;
-              fill: #8b5b4a;
-              text-anchor: end;
-            }
-          </style>
-        </defs>
-
-        <!-- 名前：1個目スタンプ左揃え -->
-        <text x="62" y="53" class="nameShadow">${displayName} 様</text>
-        <text x="60" y="51" class="nameText">${displayName} 様</text>
-
-        <!-- ID：5個目スタンプ右揃え -->
-        <text x="995" y="53" class="idShadow">No. ${displayId}</text>
-        <text x="993" y="51" class="idText">No. ${displayId}</text>
-      </svg>
-    `;
-
-    const resultBuffer = await image
+    const resultBuffer = await baseImage
       .composite([
-        {
-          input: Buffer.from(overlaySvg),
-          top: 0,
-          left: 0,
-        },
+        // 名前: 1個目スタンプ左揃え
+        { input: nameShadowImage, left: 62, top: 24 },
+        { input: nameTextImage, left: 60, top: 22 },
+
+        // ID: 5個目スタンプ右揃え
+        { input: idShadowImage, left: 775, top: 24 },
+        { input: idTextImage, left: 773, top: 22 },
       ])
       .png()
       .toBuffer();
