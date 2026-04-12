@@ -88,6 +88,12 @@ function buildPanelPayload(user, description = "操作パネルです。") {
             label: "名前変更",
             custom_id: `stamp:name:${user.user_id}`,
           },
+          {
+            type: 2,
+            style: 2,
+            label: "ID検索",
+            custom_id: `stamp:search:${user.user_id}`,
+          },
         ],
       },
     ],
@@ -299,11 +305,9 @@ export async function POST(req) {
     return Response.json({ type: 1 });
   }
 
-  // ボタン押下
   if (body.type === 3) {
     const customId = body.data?.custom_id ?? "";
 
-    // 名前変更ボタン -> modal を即返す
     if (customId.startsWith("stamp:name:")) {
       const userId = customId.split(":")[2];
 
@@ -325,6 +329,33 @@ export async function POST(req) {
                   max_length: 20,
                   required: false,
                   placeholder: "空欄で未登録に戻せます",
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+
+    if (customId.startsWith("stamp:search:")) {
+      return Response.json({
+        type: 9,
+        data: {
+          custom_id: "search_id_modal",
+          title: "ID検索",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 4,
+                  custom_id: "search_id_input",
+                  label: "検索したいカードID",
+                  style: 1,
+                  min_length: 1,
+                  max_length: 10,
+                  required: true,
+                  placeholder: "例: 12",
                 },
               ],
             },
@@ -386,7 +417,6 @@ export async function POST(req) {
     }
   }
 
-  // Modal 送信
   if (body.type === 5) {
     const interactionId = body.id;
     const interactionToken = body.token;
@@ -396,6 +426,35 @@ export async function POST(req) {
       await sendDeferredResponse(interactionId, interactionToken);
 
       const customId = body.data?.custom_id ?? "";
+
+      if (customId === "search_id_modal") {
+        const rows = body.data?.components ?? [];
+        const firstInput = rows?.[0]?.components?.[0];
+        const rawSearchId = firstInput?.value ?? "";
+        const userId = Number(String(rawSearchId).trim());
+
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "カード番号を確認してください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY
+        );
+        const user = await getUserOrThrow(supabase, userId);
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildPanelPayload(user, "カード情報を表示しました。")
+        );
+
+        return new Response(null, { status: 202 });
+      }
+
       const [prefix, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
 
@@ -439,7 +498,6 @@ export async function POST(req) {
     }
   }
 
-  // Slash Command
   if (body.type !== 2) {
     return new Response("Unhandled interaction type", { status: 400 });
   }
