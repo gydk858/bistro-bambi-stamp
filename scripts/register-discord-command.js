@@ -46,6 +46,18 @@ const commands = [
       },
     ],
   },
+  {
+    name: "create",
+    description: "新しいスタンプカードを発行します",
+    options: [
+      {
+        type: 3,
+        name: "name",
+        description: "作成と同時に名前を登録する場合のみ入力",
+        required: false,
+      },
+    ],
+  },
 ];
 
 async function main() {

@@ -26,6 +26,109 @@ function getPreviewImageUrl(user) {
   return `${fixedUrl}?v=${version}`;
 }
 
+function buildMainEmbed(user, extraDescription = "") {
+  const fixedCardUrl = getFixedCardUrl(user.user_id);
+  const previewImageUrl = getPreviewImageUrl(user);
+
+  return {
+    embeds: [
+      {
+        title: "🌸 -Bistro-Bambi スタンプカード",
+        color: 0xe9a8b5,
+        description: extraDescription || "カード情報です。",
+        fields: [
+          {
+            name: "ID",
+            value: String(user.user_id),
+            inline: true,
+          },
+          {
+            name: "氏名",
+            value: user.name ?? "未登録",
+            inline: true,
+          },
+          {
+            name: "スタンプ数",
+            value: `${user.stamp_count}`,
+            inline: true,
+          },
+          {
+            name: "カードURL",
+            value: fixedCardUrl,
+            inline: false,
+          },
+        ],
+        image: {
+          url: previewImageUrl,
+        },
+      },
+    ],
+  };
+}
+
+function buildPanelPayload(user, extraDescription = "") {
+  return {
+    ...buildMainEmbed(user, extraDescription),
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: "+1",
+            custom_id: `confirm:add:${user.user_id}`,
+          },
+          {
+            type: 2,
+            style: 4,
+            label: "-1",
+            custom_id: `confirm:remove:${user.user_id}`,
+          },
+          {
+            type: 2,
+            style: 1,
+            label: "名前変更",
+            custom_id: `stamp:name:${user.user_id}`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildConfirmPayload(user, action) {
+  const actionLabel = action === "add" ? "スタンプを +1" : "スタンプを -1";
+  const actionText = action === "add" ? "追加" : "減算";
+
+  return {
+    ...buildMainEmbed(
+      user,
+      `**確認:** このカードのスタンプを${actionText}しますか？`
+    ),
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: "はい",
+            custom_id: `apply:${action}:${user.user_id}`,
+          },
+          {
+            type: 2,
+            style: 2,
+            label: "いいえ",
+            custom_id: `cancel:${user.user_id}`,
+          },
+        ],
+      },
+    ],
+    content: `確認中: ${actionLabel}`,
+  };
+}
+
 async function verifyDiscordRequest(req, rawBody) {
   const signature = req.headers.get("x-signature-ed25519");
   const timestamp = req.headers.get("x-signature-timestamp");
@@ -80,51 +183,36 @@ async function editOriginalResponse(applicationId, interactionToken, payload) {
   }
 }
 
-function buildPanelPayload(user) {
-  const fixedCardUrl = getFixedCardUrl(user.user_id);
-  const previewImageUrl = getPreviewImageUrl(user);
-  const safeName = user.name ?? "未登録";
+async function getUserOrThrow(supabase, userId) {
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("user_id, name, stamp_count, updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  return {
-    content:
-      `**スタンプカード操作**\n` +
-      `ID: ${user.user_id}\n` +
-      `氏名: ${safeName}\n` +
-      `現在スタンプ数: ${user.stamp_count}\n` +
-      `カードURL: ${fixedCardUrl}`,
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 3,
-            label: "+1",
-            custom_id: `stamp:add:${user.user_id}`,
-          },
-          {
-            type: 2,
-            style: 4,
-            label: "-1",
-            custom_id: `stamp:remove:${user.user_id}`,
-          },
-          {
-            type: 2,
-            style: 1,
-            label: "名前変更",
-            custom_id: `stamp:name:${user.user_id}`,
-          },
-        ],
-      },
-    ],
-    embeds: [
-      {
-        image: {
-          url: previewImageUrl,
-        },
-      },
-    ],
-  };
+  if (error) {
+    throw new Error(`DBエラー: ${error.message}`);
+  }
+
+  if (!user) {
+    throw new Error(`ID ${userId} のカードが見つかりません。`);
+  }
+
+  return user;
+}
+
+async function syncCard(req, userId) {
+  const origin = new URL(req.url).origin;
+  const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
+    method: "POST",
+  });
+  const syncJson = await syncRes.json();
+
+  if (!syncRes.ok || !syncJson.ok) {
+    throw new Error(
+      `画像更新に失敗しました: ${syncJson.error ?? "unknown error"}`
+    );
+  }
 }
 
 async function processStampAction({ req, userId, action, name }) {
@@ -136,32 +224,10 @@ async function processStampAction({ req, userId, action, name }) {
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const user = await getUserOrThrow(supabase, userId);
 
-  const { data: user, error: userError } = await supabase
-    .from("users")
-    .select("user_id, name, stamp_count, updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (userError) {
-    throw new Error(`DBエラー: ${userError.message}`);
-  }
-
-  if (!user) {
-    throw new Error(`ID ${userId} のカードが見つかりません。`);
-  }
-
-  if (!["add", "remove", "url"].includes(action)) {
-    throw new Error("action は add / remove / url のみ対応です。");
-  }
-
-  if (action === "url") {
-    return {
-      user,
-      imageUrl: getFixedCardUrl(userId),
-      previewImageUrl: getPreviewImageUrl(user),
-      mode: "url",
-    };
+  if (!["add", "remove"].includes(action)) {
+    throw new Error("action は add / remove のみ対応です。");
   }
 
   const diff = action === "add" ? 1 : -1;
@@ -193,24 +259,9 @@ async function processStampAction({ req, userId, action, name }) {
     );
   }
 
-  const origin = new URL(req.url).origin;
-  const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
-    method: "POST",
-  });
-  const syncJson = await syncRes.json();
+  await syncCard(req, userId);
 
-  if (!syncRes.ok || !syncJson.ok) {
-    throw new Error(
-      `画像更新に失敗しました: ${syncJson.error ?? "unknown error"}`
-    );
-  }
-
-  return {
-    user: updatedUser,
-    imageUrl: getFixedCardUrl(userId),
-    previewImageUrl: getPreviewImageUrl(updatedUser),
-    mode: "updated",
-  };
+  return updatedUser;
 }
 
 async function processNameUpdate({ req, userId, name }) {
@@ -240,23 +291,41 @@ async function processNameUpdate({ req, userId, name }) {
     );
   }
 
-  const origin = new URL(req.url).origin;
-  const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
-    method: "POST",
-  });
-  const syncJson = await syncRes.json();
+  await syncCard(req, userId);
 
-  if (!syncRes.ok || !syncJson.ok) {
+  return updatedUser;
+}
+
+async function createCard({ req, name }) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase の環境変数が不足しています。");
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
+  const { data: newUser, error: createError } = await supabase
+    .from("users")
+    .insert({
+      name: trimmedName === "" ? null : trimmedName,
+      stamp_count: 0,
+      updated_at: new Date().toISOString(),
+    })
+    .select("user_id, name, stamp_count, updated_at")
+    .maybeSingle();
+
+  if (createError || !newUser) {
     throw new Error(
-      `画像更新に失敗しました: ${syncJson.error ?? "unknown error"}`
+      `新規カード発行に失敗しました: ${createError?.message ?? "unknown error"}`
     );
   }
 
-  return {
-    user: updatedUser,
-    imageUrl: getFixedCardUrl(userId),
-    previewImageUrl: getPreviewImageUrl(updatedUser),
-  };
+  await syncCard(req, newUser.user_id);
+
+  return newUser;
 }
 
 export async function POST(req) {
@@ -307,6 +376,65 @@ export async function POST(req) {
       });
     }
 
+    // +1 / -1 確認画面は即返す
+    if (customId.startsWith("confirm:")) {
+      const [, action, userIdRaw] = customId.split(":");
+      const userId = Number(userIdRaw);
+
+      try {
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY
+        );
+        const user = await getUserOrThrow(supabase, userId);
+
+        return Response.json({
+          type: 7,
+          data: buildConfirmPayload(user, action),
+        });
+      } catch (error) {
+        return Response.json({
+          type: 7,
+          data: {
+            content:
+              error instanceof Error
+                ? `エラー: ${error.message}`
+                : "不明なエラーが発生しました。",
+            components: [],
+          },
+        });
+      }
+    }
+
+    // いいえ -> 元パネルに戻す
+    if (customId.startsWith("cancel:")) {
+      const userId = Number(customId.split(":")[1]);
+
+      try {
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY
+        );
+        const user = await getUserOrThrow(supabase, userId);
+
+        return Response.json({
+          type: 7,
+          data: buildPanelPayload(user, "操作をキャンセルしました。"),
+        });
+      } catch (error) {
+        return Response.json({
+          type: 7,
+          data: {
+            content:
+              error instanceof Error
+                ? `エラー: ${error.message}`
+                : "不明なエラーが発生しました。",
+            components: [],
+          },
+        });
+      }
+    }
+
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
@@ -314,28 +442,40 @@ export async function POST(req) {
     try {
       await sendDeferredResponse(interactionId, interactionToken);
 
-      const [prefix, action, userIdRaw] = customId.split(":");
-      const userId = Number(userIdRaw);
+      // はい -> 実行
+      if (customId.startsWith("apply:")) {
+        const [, action, userIdRaw] = customId.split(":");
+        const userId = Number(userIdRaw);
 
-      if (prefix !== "stamp" || !Number.isFinite(userId)) {
-        await editOriginalResponse(applicationId, interactionToken, {
-          content: "不正なボタンです。",
-          components: [],
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "不正なボタンです。",
+            components: [],
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const updatedUser = await processStampAction({
+          req,
+          userId,
+          action,
         });
+
+        const actionText = action === "add" ? "スタンプを追加しました。" : "スタンプを減らしました。";
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildPanelPayload(updatedUser, actionText)
+        );
+
         return new Response(null, { status: 202 });
       }
 
-      const result = await processStampAction({
-        req,
-        userId,
-        action,
+      await editOriginalResponse(applicationId, interactionToken, {
+        content: "不正なボタンです。",
+        components: [],
       });
-
-      await editOriginalResponse(
-        applicationId,
-        interactionToken,
-        buildPanelPayload(result.user)
-      );
 
       return new Response(null, { status: 202 });
     } catch (error) {
@@ -388,7 +528,7 @@ export async function POST(req) {
       await editOriginalResponse(
         applicationId,
         interactionToken,
-        buildPanelPayload(result.user)
+        buildPanelPayload(result, "氏名を更新しました。")
       );
 
       return new Response(null, { status: 202 });
@@ -448,20 +588,11 @@ export async function POST(req) {
         name,
       });
 
+      const actionText = action === "add" ? "スタンプを追加しました。" : "スタンプを減らしました。";
+
       await editOriginalResponse(applicationId, interactionToken, {
-        content:
-          `更新しました。\n` +
-          `ID: ${result.user.user_id}\n` +
-          `氏名: ${result.user.name ?? "未登録"}\n` +
-          `スタンプ数: ${result.user.stamp_count}\n` +
-          `カードURL: ${result.imageUrl}`,
-        embeds: [
-          {
-            image: {
-              url: result.previewImageUrl,
-            },
-          },
-        ],
+        content: actionText,
+        ...buildMainEmbed(result, actionText),
       });
 
       return new Response(null, { status: 202 });
@@ -478,16 +609,34 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
-      const result = await processStampAction({
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+      );
+      const user = await getUserOrThrow(supabase, userId);
+
+      await editOriginalResponse(
+        applicationId,
+        interactionToken,
+        buildPanelPayload(user, "操作パネルを表示しました。")
+      );
+
+      return new Response(null, { status: 202 });
+    }
+
+    if (commandName === "create") {
+      const options = body.data?.options ?? [];
+      const name = getOptionValue(options, "name");
+
+      const newUser = await createCard({
         req,
-        userId,
-        action: "url",
+        name,
       });
 
       await editOriginalResponse(
         applicationId,
         interactionToken,
-        buildPanelPayload(result.user)
+        buildPanelPayload(newUser, "新しいカードを発行しました。")
       );
 
       return new Response(null, { status: 202 });
