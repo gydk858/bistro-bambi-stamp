@@ -92,18 +92,18 @@ export async function POST(req, context) {
       text: displayName,
       font: "Noto Sans JP",
       fontfile: fontPath,
-      width: 520,
+      width: 540,
       rgba: true,
-      dpi: 180,
+      dpi: 170,
     };
 
     const commonIdTextOptions = {
       text: displayId,
       font: "Noto Sans JP",
       fontfile: fontPath,
-      width: 220,
+      width: 240,
       rgba: true,
-      dpi: 180,
+      dpi: 170,
       align: "right",
     };
 
@@ -111,39 +111,39 @@ export async function POST(req, context) {
       text: commonNameTextOptions,
     })
       .png()
-      .tint("#835848")
+      .tint("#8a5e4c")
       .toBuffer();
 
     const nameShadowImage = await sharp({
       text: commonNameTextOptions,
     })
       .png()
-      .tint("#fffaf8")
+      .tint("#fffdfb")
       .toBuffer();
 
     const idTextImage = await sharp({
       text: commonIdTextOptions,
     })
       .png()
-      .tint("#8a5e4c")
+      .tint("#9a6d59")
       .toBuffer();
 
     const idShadowImage = await sharp({
       text: commonIdTextOptions,
     })
       .png()
-      .tint("#fffaf8")
+      .tint("#fffdfb")
       .toBuffer();
 
     const resultBuffer = await baseImage
       .composite([
-        // 名前: 1個目スタンプ左揃え
-        { input: nameShadowImage, left: 61, top: 23 },
-        { input: nameTextImage, left: 60, top: 22 },
+        // 名前: 少し右へ
+        { input: nameShadowImage, left: 76, top: 25 },
+        { input: nameTextImage, left: 75, top: 24 },
 
-        // ID: 5個目スタンプ右揃え
-        { input: idShadowImage, left: 774, top: 23 },
-        { input: idTextImage, left: 773, top: 22 },
+        // ID: もっと右へ
+        { input: idShadowImage, left: 805, top: 25 },
+        { input: idTextImage, left: 804, top: 24 },
       ])
       .png()
       .toBuffer();
