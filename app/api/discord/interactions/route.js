@@ -100,6 +100,12 @@ function buildPanelPayload(user) {
             label: "URL表示",
             custom_id: `stamp:url:${user.user_id}`,
           },
+          {
+            type: 2,
+            style: 1,
+            label: "名前変更",
+            custom_id: `stamp:name:${user.user_id}`,
+          },
         ],
       },
     ],
@@ -197,6 +203,51 @@ async function processStampAction({ req, userId, action, name }) {
   };
 }
 
+async function processNameUpdate({ req, userId, name }) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase の環境変数が不足しています。");
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
+  const { data: updatedUser, error: updateError } = await supabase
+    .from("users")
+    .update({
+      name: trimmedName === "" ? null : trimmedName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .select("user_id, name, stamp_count")
+    .maybeSingle();
+
+  if (updateError || !updatedUser) {
+    throw new Error(
+      `氏名更新に失敗しました: ${updateError?.message ?? "unknown error"}`
+    );
+  }
+
+  const origin = new URL(req.url).origin;
+  const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
+    method: "POST",
+  });
+  const syncJson = await syncRes.json();
+
+  if (!syncRes.ok || !syncJson.ok) {
+    throw new Error(
+      `画像更新に失敗しました: ${syncJson.error ?? "unknown error"}`
+    );
+  }
+
+  return {
+    user: updatedUser,
+    imageUrl: `${LIVE_CARD_BASE}/${userId}.png`,
+  };
+}
+
 export async function POST(req) {
   const rawBody = await req.text();
 
@@ -213,6 +264,38 @@ export async function POST(req) {
 
   // ボタン押下
   if (body.type === 3) {
+    const customId = body.data?.custom_id ?? "";
+
+    // 名前変更ボタンだけは modal を即返す
+    if (customId.startsWith("stamp:name:")) {
+      const userId = customId.split(":")[2];
+
+      return Response.json({
+        type: 9,
+        data: {
+          custom_id: `name_modal:${userId}`,
+          title: "氏名変更",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 4,
+                  custom_id: "name_input",
+                  label: "氏名",
+                  style: 1,
+                  min_length: 0,
+                  max_length: 20,
+                  required: false,
+                  placeholder: "空欄で未登録に戻せます",
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
@@ -220,7 +303,6 @@ export async function POST(req) {
     try {
       await sendDeferredResponse(interactionId, interactionToken);
 
-      const customId = body.data?.custom_id ?? "";
       const [prefix, action, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
 
@@ -280,6 +362,59 @@ export async function POST(req) {
     }
   }
 
+  // Modal 送信
+  if (body.type === 5) {
+    const interactionId = body.id;
+    const interactionToken = body.token;
+    const applicationId = body.application_id;
+
+    try {
+      await sendDeferredResponse(interactionId, interactionToken);
+
+      const customId = body.data?.custom_id ?? "";
+      const [prefix, userIdRaw] = customId.split(":");
+      const userId = Number(userIdRaw);
+
+      if (prefix !== "name_modal" || !Number.isFinite(userId)) {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content: "不正な入力です。",
+        });
+        return new Response(null, { status: 202 });
+      }
+
+      const rows = body.data?.components ?? [];
+      const firstInput = rows?.[0]?.components?.[0];
+      const newName = firstInput?.value ?? "";
+
+      const result = await processNameUpdate({
+        req,
+        userId,
+        name: newName,
+      });
+
+      await editOriginalResponse(
+        applicationId,
+        interactionToken,
+        buildPanelPayload(result.user)
+      );
+
+      return new Response(null, { status: 202 });
+    } catch (error) {
+      try {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content:
+            error instanceof Error
+              ? `エラー: ${error.message}`
+              : "不明なエラーが発生しました。",
+        });
+      } catch {
+        // ignore
+      }
+
+      return new Response(null, { status: 202 });
+    }
+  }
+
   // Slash Command
   if (body.type !== 2) {
     return new Response("Unhandled interaction type", { status: 400 });
@@ -293,7 +428,6 @@ export async function POST(req) {
   try {
     await sendDeferredResponse(interactionId, interactionToken);
 
-    // /stamp
     if (commandName === "stamp") {
       const options = body.data?.options ?? [];
       const userId = Number(getOptionValue(options, "id"));
@@ -340,7 +474,6 @@ export async function POST(req) {
       return new Response(null, { status: 202 });
     }
 
-    // /panel
     if (commandName === "panel") {
       const options = body.data?.options ?? [];
       const userId = Number(getOptionValue(options, "id"));
