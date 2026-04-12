@@ -13,6 +13,19 @@ function getOptionValue(options, name) {
   return options.find((option) => option.name === name)?.value;
 }
 
+function getFixedCardUrl(userId) {
+  return `${LIVE_CARD_BASE}/${userId}.png`;
+}
+
+function getPreviewImageUrl(user) {
+  const fixedUrl = getFixedCardUrl(user.user_id);
+  const version = user.updated_at
+    ? new Date(user.updated_at).getTime()
+    : Date.now();
+
+  return `${fixedUrl}?v=${version}`;
+}
+
 async function verifyDiscordRequest(req, rawBody) {
   const signature = req.headers.get("x-signature-ed25519");
   const timestamp = req.headers.get("x-signature-timestamp");
@@ -68,7 +81,8 @@ async function editOriginalResponse(applicationId, interactionToken, payload) {
 }
 
 function buildPanelPayload(user) {
-  const imageUrl = `${LIVE_CARD_BASE}/${user.user_id}.png`;
+  const fixedCardUrl = getFixedCardUrl(user.user_id);
+  const previewImageUrl = getPreviewImageUrl(user);
   const safeName = user.name ?? "未登録";
 
   return {
@@ -77,7 +91,7 @@ function buildPanelPayload(user) {
       `ID: ${user.user_id}\n` +
       `氏名: ${safeName}\n` +
       `現在スタンプ数: ${user.stamp_count}\n` +
-      `カードURL: ${imageUrl}`,
+      `カードURL: ${fixedCardUrl}`,
     components: [
       {
         type: 1,
@@ -96,12 +110,6 @@ function buildPanelPayload(user) {
           },
           {
             type: 2,
-            style: 2,
-            label: "URL表示",
-            custom_id: `stamp:url:${user.user_id}`,
-          },
-          {
-            type: 2,
             style: 1,
             label: "名前変更",
             custom_id: `stamp:name:${user.user_id}`,
@@ -112,7 +120,7 @@ function buildPanelPayload(user) {
     embeds: [
       {
         image: {
-          url: imageUrl,
+          url: previewImageUrl,
         },
       },
     ],
@@ -131,7 +139,7 @@ async function processStampAction({ req, userId, action, name }) {
 
   const { data: user, error: userError } = await supabase
     .from("users")
-    .select("user_id, name, stamp_count")
+    .select("user_id, name, stamp_count, updated_at")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -143,16 +151,17 @@ async function processStampAction({ req, userId, action, name }) {
     throw new Error(`ID ${userId} のカードが見つかりません。`);
   }
 
+  if (!["add", "remove", "url"].includes(action)) {
+    throw new Error("action は add / remove / url のみ対応です。");
+  }
+
   if (action === "url") {
     return {
       user,
-      imageUrl: `${LIVE_CARD_BASE}/${userId}.png`,
+      imageUrl: getFixedCardUrl(userId),
+      previewImageUrl: getPreviewImageUrl(user),
       mode: "url",
     };
-  }
-
-  if (!["add", "remove"].includes(action)) {
-    throw new Error("action は add / remove / url のみ対応です。");
   }
 
   const diff = action === "add" ? 1 : -1;
@@ -175,7 +184,7 @@ async function processStampAction({ req, userId, action, name }) {
     .from("users")
     .update(updatePayload)
     .eq("user_id", userId)
-    .select("user_id, name, stamp_count")
+    .select("user_id, name, stamp_count, updated_at")
     .maybeSingle();
 
   if (updateError || !updatedUser) {
@@ -198,7 +207,8 @@ async function processStampAction({ req, userId, action, name }) {
 
   return {
     user: updatedUser,
-    imageUrl: `${LIVE_CARD_BASE}/${userId}.png`,
+    imageUrl: getFixedCardUrl(userId),
+    previewImageUrl: getPreviewImageUrl(updatedUser),
     mode: "updated",
   };
 }
@@ -221,7 +231,7 @@ async function processNameUpdate({ req, userId, name }) {
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId)
-    .select("user_id, name, stamp_count")
+    .select("user_id, name, stamp_count, updated_at")
     .maybeSingle();
 
   if (updateError || !updatedUser) {
@@ -244,7 +254,8 @@ async function processNameUpdate({ req, userId, name }) {
 
   return {
     user: updatedUser,
-    imageUrl: `${LIVE_CARD_BASE}/${userId}.png`,
+    imageUrl: getFixedCardUrl(userId),
+    previewImageUrl: getPreviewImageUrl(updatedUser),
   };
 }
 
@@ -266,7 +277,7 @@ export async function POST(req) {
   if (body.type === 3) {
     const customId = body.data?.custom_id ?? "";
 
-    // 名前変更ボタンだけは modal を即返す
+    // 名前変更ボタン -> modal を即返す
     if (customId.startsWith("stamp:name:")) {
       const userId = customId.split(":")[2];
 
@@ -320,29 +331,11 @@ export async function POST(req) {
         action,
       });
 
-      if (result.mode === "url") {
-        await editOriginalResponse(applicationId, interactionToken, {
-          content:
-            `**カードURL**\n` +
-            `ID: ${result.user.user_id}\n` +
-            `氏名: ${result.user.name ?? "未登録"}\n` +
-            `${result.imageUrl}`,
-          components: buildPanelPayload(result.user).components,
-          embeds: [
-            {
-              image: {
-                url: result.imageUrl,
-              },
-            },
-          ],
-        });
-      } else {
-        await editOriginalResponse(
-          applicationId,
-          interactionToken,
-          buildPanelPayload(result.user)
-        );
-      }
+      await editOriginalResponse(
+        applicationId,
+        interactionToken,
+        buildPanelPayload(result.user)
+      );
 
       return new Response(null, { status: 202 });
     } catch (error) {
@@ -465,7 +458,7 @@ export async function POST(req) {
         embeds: [
           {
             image: {
-              url: result.imageUrl,
+              url: result.previewImageUrl,
             },
           },
         ],
