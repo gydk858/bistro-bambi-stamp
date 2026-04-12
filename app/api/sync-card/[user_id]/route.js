@@ -103,26 +103,26 @@ export async function POST(req, context) {
         <defs>
           <style>
             @font-face {
-              font-family: 'CardFont';
+              font-family: 'CardFontJP';
               src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
             }
 
             .nameShadow {
-              font-family: 'CardFont', sans-serif;
+              font-family: 'CardFontJP', sans-serif;
               font-size: 30px;
               font-weight: 700;
               fill: rgba(255,255,255,0.78);
             }
 
             .nameText {
-              font-family: 'CardFont', sans-serif;
+              font-family: 'CardFontJP', sans-serif;
               font-size: 30px;
               font-weight: 700;
               fill: #7b4b3a;
             }
 
             .idShadow {
-              font-family: 'CardFont', sans-serif;
+              font-family: Georgia, 'Times New Roman', serif;
               font-size: 30px;
               font-weight: 700;
               fill: rgba(255,255,255,0.78);
@@ -130,7 +130,7 @@ export async function POST(req, context) {
             }
 
             .idText {
-              font-family: 'CardFont', sans-serif;
+              font-family: Georgia, 'Times New Roman', serif;
               font-size: 30px;
               font-weight: 700;
               fill: #8b5b4a;
@@ -139,11 +139,11 @@ export async function POST(req, context) {
           </style>
         </defs>
 
-        <!-- 名前：1個目スタンプの左揃え -->
+        <!-- 名前：1個目スタンプ左揃え -->
         <text x="62" y="53" class="nameShadow">${displayName} 様</text>
         <text x="60" y="51" class="nameText">${displayName} 様</text>
 
-        <!-- ID：5個目スタンプの右揃え -->
+        <!-- ID：5個目スタンプ右揃え -->
         <text x="995" y="53" class="idShadow">No. ${displayId}</text>
         <text x="993" y="51" class="idText">No. ${displayId}</text>
       </svg>
