@@ -26,10 +26,4 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   }
-"scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "register:discord": "node scripts/register-discord-command.js"
-  }
 }
