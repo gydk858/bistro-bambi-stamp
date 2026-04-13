@@ -8,7 +8,7 @@ const SUPABASE_PUBLIC_CARD_BASE =
 
 export default function AdminClient() {
   const [userId, setUserId] = useState('')
-  const [user, setUser] = useState(null)
+  const [cardRecord, setCardRecord] = useState(null)
   const [message, setMessage] = useState('')
 
   const [createMessage, setCreateMessage] = useState('')
@@ -33,11 +33,11 @@ export default function AdminClient() {
     return `${SUPABASE_PUBLIC_CARD_BASE}/${targetUserId}.png`
   }
 
-  const getPreviewUrl = (targetUser) => {
-    if (!targetUser) return ''
-    const fixedUrl = getFixedCardUrl(targetUser.user_id)
-    const version = targetUser.updated_at
-      ? new Date(targetUser.updated_at).getTime()
+  const getPreviewUrl = (targetRecord) => {
+    if (!targetRecord) return ''
+    const fixedUrl = getFixedCardUrl(targetRecord.user_id)
+    const version = targetRecord.updated_at
+      ? new Date(targetRecord.updated_at).getTime()
       : Date.now()
 
     return `${fixedUrl}?v=${version}`
@@ -57,78 +57,117 @@ export default function AdminClient() {
     return syncJson
   }
 
+  const fetchStampCardByUserId = async (targetUserId) => {
+    const { data, error } = await supabase
+      .from('v_stamp_cards_current')
+      .select('*')
+      .eq('user_id', Number(targetUserId))
+      .eq('program_code', 'stamp_regular')
+      .eq('card_status', 'active')
+      .maybeSingle()
+
+    if (error || !data) {
+      throw new Error('カード情報の取得に失敗しました')
+    }
+
+    return data
+  }
+
   const searchUser = async () => {
     setMessage('')
     setNameMessage('')
     setCopiedFixed(false)
 
     if (!userId) {
-      setUser(null)
+      setCardRecord(null)
       setMessage('番号を入力してください')
       return
     }
 
     const { data, error } = await supabase
-      .from('users')
+      .from('v_stamp_cards_current')
       .select('*')
       .eq('user_id', Number(userId))
+      .eq('program_code', 'stamp_regular')
+      .eq('card_status', 'active')
       .maybeSingle()
 
     if (error || !data) {
-      setUser(null)
+      setCardRecord(null)
       setEditName('')
       setMessage('カードが見つかりません')
       return
     }
 
-    setUser(data)
-    setEditName(data.name || '')
+    setCardRecord(data)
+    setEditName(data.display_name || '')
     setMessage('カードを表示しました')
     refreshPreview()
   }
 
   const createCard = async () => {
     setCreateMessage('')
+    setMessage('')
+    setNameMessage('')
     setCopiedFixed(false)
 
-    const { data, error } = await supabase
+    const now = new Date().toISOString()
+
+    const { data: createdUser, error: createUserError } = await supabase
       .from('users')
       .insert({
-        name: null,
-        stamp_count: 0,
-        updated_at: new Date().toISOString(),
+        display_name: '未登録',
+        status: 'active',
+        updated_at: now,
       })
-      .select()
+      .select('user_id, display_name, updated_at')
       .maybeSingle()
 
-    if (error || !data) {
+    if (createUserError || !createdUser) {
       setCreateMessage('カード発行に失敗しました')
       return
     }
 
+    const { data: createdCardRows, error: createCardError } = await supabase.rpc(
+      'create_stamp_card_for_user',
+      {
+        p_user_id: createdUser.user_id,
+        p_program_code: 'stamp_regular',
+        p_max_count: 10,
+        p_note: '管理画面から新規発行',
+      }
+    )
+
+    if (createCardError || !createdCardRows || createdCardRows.length === 0) {
+      setCreateMessage('カード本体の作成に失敗しました')
+      return
+    }
+
     try {
-      await syncCardImage(data.user_id)
+      await syncCardImage(createdUser.user_id)
+
+      const fetchedCard = await fetchStampCardByUserId(createdUser.user_id)
+
+      setCreateMessage(`カード番号 ${createdUser.user_id} を発行しました`)
+      setMessage('新規カードを発行しました')
+      setUserId(String(createdUser.user_id))
+      setCardRecord(fetchedCard)
+      setEditName(fetchedCard.display_name || '')
+      refreshPreview()
     } catch (error) {
       setCreateMessage(
         error instanceof Error
           ? error.message
-          : 'カード画像の初期作成に失敗しました'
+          : 'カード発行後の初期化に失敗しました'
       )
-      return
     }
-
-    setCreateMessage(`カード番号 ${data.user_id} を発行しました`)
-    setUser(data)
-    setUserId(String(data.user_id))
-    setEditName(data.name || '')
-    refreshPreview()
   }
 
   const saveName = async () => {
     setNameMessage('')
     setCopiedFixed(false)
 
-    if (!user) {
+    if (!cardRecord) {
       setNameMessage('先にカードを検索してください')
       return
     }
@@ -138,10 +177,10 @@ export default function AdminClient() {
     const { data, error } = await supabase
       .from('users')
       .update({
-        name: trimmedName === '' ? null : trimmedName,
+        display_name: trimmedName === '' ? '未登録' : trimmedName,
         updated_at: new Date().toISOString(),
       })
-      .eq('user_id', user.user_id)
+      .eq('user_id', cardRecord.user_id)
       .select()
       .maybeSingle()
 
@@ -161,34 +200,39 @@ export default function AdminClient() {
       return
     }
 
-    setUser(data)
-    setEditName(data.name || '')
+    setCardRecord((prev) =>
+      prev
+        ? {
+            ...prev,
+            display_name: data.display_name,
+            updated_at: data.updated_at,
+          }
+        : prev
+    )
+    setEditName(data.display_name || '')
     setNameMessage('氏名を保存しました')
     refreshPreview()
   }
 
   const updateStampCount = async (diff) => {
-    if (!user) return
+    if (!cardRecord) return
 
-    const newCount = Math.max(0, Math.min(10, user.stamp_count + diff))
+    const { data, error } = await supabase.rpc('increment_stamp_card', {
+      p_card_id: cardRecord.card_id,
+      p_amount: diff,
+      p_acted_by: 'admin_ui',
+      p_reason: diff > 0 ? '管理画面からスタンプ追加' : '管理画面からスタンプ減算',
+    })
 
-    const { data, error } = await supabase
-      .from('users')
-      .update({
-        stamp_count: newCount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', user.user_id)
-      .select()
-      .maybeSingle()
-
-    if (error || !data) {
+    if (error || !data || data.length === 0) {
       setMessage('スタンプ更新に失敗しました')
       return
     }
 
+    const updated = data[0]
+
     try {
-      await syncCardImage(data.user_id)
+      await syncCardImage(cardRecord.user_id)
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -198,16 +242,71 @@ export default function AdminClient() {
       return
     }
 
-    setUser(data)
-    setMessage(`スタンプ数を ${data.stamp_count} に更新しました`)
+    setCardRecord((prev) =>
+      prev
+        ? {
+            ...prev,
+            current_count: updated.current_count,
+            max_count: updated.max_count,
+            completed_at: updated.completed_at,
+            updated_at: new Date().toISOString(),
+          }
+        : prev
+    )
+
+    setMessage(`スタンプ数を ${updated.current_count} に更新しました`)
+    refreshPreview()
+    setCopiedFixed(false)
+  }
+
+  const resetStampCard = async () => {
+    if (!cardRecord) return
+
+    const { data, error } = await supabase.rpc('reset_stamp_card', {
+      p_card_id: cardRecord.card_id,
+      p_acted_by: 'admin_ui',
+      p_reason: '管理画面からリセット',
+    })
+
+    if (error || !data || data.length === 0) {
+      setMessage('スタンプのリセットに失敗しました')
+      return
+    }
+
+    const resetResult = data[0]
+
+    try {
+      await syncCardImage(cardRecord.user_id)
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'カード画像の同期に失敗しました'
+      )
+      return
+    }
+
+    setCardRecord((prev) =>
+      prev
+        ? {
+            ...prev,
+            current_count: resetResult.current_count,
+            max_count: resetResult.max_count,
+            completed_at: null,
+            updated_at: new Date().toISOString(),
+          }
+        : prev
+    )
+
+    setMessage('スタンプをリセットしました')
     refreshPreview()
     setCopiedFixed(false)
   }
 
   const copyFixedCardUrl = async () => {
-    if (!user) return
+    if (!cardRecord) return
 
-    const fullUrl = getFixedCardUrl(user.user_id)
+    const fullUrl = getFixedCardUrl(cardRecord.user_id)
 
     try {
       await navigator.clipboard.writeText(fullUrl)
@@ -284,6 +383,18 @@ export default function AdminClient() {
     cursor: 'pointer',
     minWidth: '110px',
     boxShadow: '0 8px 20px rgba(243, 182, 166, 0.30)',
+  }
+
+  const dangerButtonStyle = {
+    padding: '18px 28px',
+    fontSize: '24px',
+    fontWeight: 800,
+    borderRadius: '18px',
+    border: '1px solid #e7b8aa',
+    background: '#fff',
+    color: '#8a4e3d',
+    cursor: 'pointer',
+    minWidth: '140px',
   }
 
   const infoRowStyle = {
@@ -364,6 +475,24 @@ export default function AdminClient() {
           </div>
 
           <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <a
+              href="/admin"
+              style={{
+                padding: '16px 24px',
+                fontSize: '20px',
+                fontWeight: 700,
+                borderRadius: '14px',
+                border: '1px solid #e6c6bb',
+                background: '#fff',
+                color: '#7a4b3a',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              管理メニュー
+            </a>
+
             <a
               href="/admin/settings"
               style={{
@@ -477,7 +606,7 @@ export default function AdminClient() {
               )}
             </div>
 
-            {user && (
+            {cardRecord && (
               <>
                 <div style={cardBoxStyle}>
                   <div style={sectionTitleStyle}>③ 氏名登録・修正</div>
@@ -552,6 +681,9 @@ export default function AdminClient() {
                     <button onClick={() => updateStampCount(1)} style={stampButtonStyle}>
                       +1
                     </button>
+                    <button onClick={resetStampCard} style={dangerButtonStyle}>
+                      リセット
+                    </button>
                   </div>
                 </div>
               </>
@@ -562,16 +694,22 @@ export default function AdminClient() {
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>カード情報</div>
 
-              {user ? (
+              {cardRecord ? (
                 <>
                   <p style={infoRowStyle}>
-                    <strong>番号：</strong> {user.user_id}
+                    <strong>番号：</strong> {cardRecord.user_id}
                   </p>
                   <p style={infoRowStyle}>
-                    <strong>氏名：</strong> {user.name || '未登録'}
+                    <strong>カードID：</strong> {cardRecord.card_id}
                   </p>
                   <p style={infoRowStyle}>
-                    <strong>現在のスタンプ数：</strong> {user.stamp_count}
+                    <strong>氏名：</strong> {cardRecord.display_name || '未登録'}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>現在のスタンプ数：</strong> {cardRecord.current_count}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>最大スタンプ数：</strong> {cardRecord.max_count}
                   </p>
 
                   <div style={{ marginTop: '18px' }}>
@@ -588,12 +726,12 @@ export default function AdminClient() {
                       }}
                     >
                       <a
-                        href={getFixedCardUrl(user.user_id)}
+                        href={getFixedCardUrl(cardRecord.user_id)}
                         target="_blank"
                         rel="noreferrer"
                         style={linkStyle}
                       >
-                        {getFixedCardUrl(user.user_id)}
+                        {getFixedCardUrl(cardRecord.user_id)}
                       </a>
 
                       <button
@@ -649,7 +787,7 @@ export default function AdminClient() {
                 氏名保存やスタンプ更新後は自動で反映されます。
               </p>
 
-              {user ? (
+              {cardRecord ? (
                 <>
                   <div
                     style={{
@@ -661,8 +799,8 @@ export default function AdminClient() {
                     }}
                   >
                     <img
-                      src={`${getPreviewUrl(user)}&preview=${previewKey}`}
-                      alt={`カード ${user.user_id}`}
+                      src={`${getPreviewUrl(cardRecord)}&preview=${previewKey}`}
+                      alt={`カード ${cardRecord.user_id}`}
                       style={{
                         width: '100%',
                         maxWidth: '100%',

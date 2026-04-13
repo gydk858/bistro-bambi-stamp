@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const MAX_NAME_LENGTH = 12;
+const STAMP_PROGRAM_CODE = "stamp_regular";
 
 function clampStampCount(value) {
   return Math.max(0, Math.min(10, Number(value ?? 0)));
@@ -87,27 +88,29 @@ export async function POST(req, context) {
       );
     }
 
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("user_id, name, stamp_count")
+    const { data: card, error: cardError } = await supabase
+      .from("v_stamp_cards_current")
+      .select("*")
       .eq("user_id", userId)
+      .eq("program_code", STAMP_PROGRAM_CODE)
+      .eq("card_status", "active")
       .maybeSingle();
 
-    if (userError) {
+    if (cardError) {
       return Response.json(
-        { ok: false, error: userError.message },
+        { ok: false, error: cardError.message },
         { status: 500 }
       );
     }
 
-    if (!user) {
+    if (!card) {
       return Response.json(
-        { ok: false, error: `User not found: ${userId}` },
+        { ok: false, error: `Stamp card not found: ${userId}` },
         { status: 404 }
       );
     }
 
-    const stampCount = clampStampCount(user.stamp_count);
+    const stampCount = clampStampCount(card.current_count);
     const sourcePath = `cards/${stampCount}.png`;
     const targetPath = `live/${userId}.png`;
 
@@ -134,9 +137,11 @@ export async function POST(req, context) {
 
     await readFile(fontPath);
 
-    const displayNameRaw = user.name ? String(user.name) : "未登録";
+    const displayNameRaw = card.display_name
+      ? String(card.display_name)
+      : "未登録";
     const displayName = `${displayNameRaw.slice(0, MAX_NAME_LENGTH)} 様`;
-    const displayId = `No. ${String(user.user_id ?? userId)}`;
+    const displayId = `No. ${String(card.user_id ?? userId)}`;
 
     const textColor = "#764735";
     const shadowColor = "#fff8f5";
@@ -212,6 +217,7 @@ export async function POST(req, context) {
     return Response.json({
       ok: true,
       userId,
+      cardId: card.card_id,
       stampCount,
       imagePath: targetPath,
       imageUrl: publicUrlData.publicUrl,

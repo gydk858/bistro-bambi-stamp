@@ -8,6 +8,9 @@ export const revalidate = 0;
 const LIVE_CARD_BASE =
   "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live";
 
+const STAMP_PROGRAM_CODE = "stamp_regular";
+const DEFAULT_MAX_COUNT = 10;
+
 function getOptionValue(options, name) {
   if (!Array.isArray(options)) return undefined;
   return options.find((option) => option.name === name)?.value;
@@ -17,10 +20,10 @@ function getFixedCardUrl(userId) {
   return `${LIVE_CARD_BASE}/${userId}.png`;
 }
 
-function getPreviewImageUrl(user) {
-  const fixedUrl = getFixedCardUrl(user.user_id);
-  const version = user.updated_at
-    ? new Date(user.updated_at).getTime()
+function getPreviewImageUrl(card) {
+  const fixedUrl = getFixedCardUrl(card.user_id);
+  const version = card.updated_at
+    ? new Date(card.updated_at).getTime()
     : Date.now();
 
   return `${fixedUrl}?v=${version}`;
@@ -34,7 +37,7 @@ function getOperatorName(body) {
   return nick || globalName || username || "担当者";
 }
 
-function buildMainEmbed(user, description = "") {
+function buildMainEmbed(card, description = "") {
   return {
     embeds: [
       {
@@ -44,36 +47,38 @@ function buildMainEmbed(user, description = "") {
         fields: [
           {
             name: "ID",
-            value: String(user.user_id),
+            value: String(card.user_id),
             inline: true,
           },
           {
             name: "氏名",
-            value: user.name ?? "未登録",
+            value: card.display_name ?? "未登録",
             inline: true,
           },
           {
             name: "現在スタンプ数",
-            value: String(user.stamp_count),
+            value: `${String(card.current_count ?? 0)} / ${String(
+              card.max_count ?? DEFAULT_MAX_COUNT
+            )}`,
             inline: true,
           },
           {
             name: "カードURL",
-            value: getFixedCardUrl(user.user_id),
+            value: getFixedCardUrl(card.user_id),
             inline: false,
           },
         ],
         image: {
-          url: getPreviewImageUrl(user),
+          url: getPreviewImageUrl(card),
         },
       },
     ],
   };
 }
 
-function buildPanelPayload(user, description = "操作パネルです。") {
+function buildPanelPayload(card, description = "操作パネルです。") {
   return {
-    ...buildMainEmbed(user, description),
+    ...buildMainEmbed(card, description),
     components: [
       {
         type: 1,
@@ -82,25 +87,25 @@ function buildPanelPayload(user, description = "操作パネルです。") {
             type: 2,
             style: 3,
             label: "+1",
-            custom_id: `stamp:add:${user.user_id}`,
+            custom_id: `stamp:add:${card.user_id}`,
           },
           {
             type: 2,
             style: 4,
             label: "-1",
-            custom_id: `stamp:remove:${user.user_id}`,
+            custom_id: `stamp:remove:${card.user_id}`,
           },
           {
             type: 2,
             style: 1,
             label: "名前変更",
-            custom_id: `stamp:name:${user.user_id}`,
+            custom_id: `stamp:name:${card.user_id}`,
           },
           {
             type: 2,
             style: 2,
             label: "ID検索",
-            custom_id: `stamp:search:${user.user_id}`,
+            custom_id: `stamp:search:${card.user_id}`,
           },
         ],
       },
@@ -162,22 +167,35 @@ async function editOriginalResponse(applicationId, interactionToken, payload) {
   }
 }
 
-async function getUserOrThrow(supabase, userId) {
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("user_id, name, stamp_count, updated_at")
+function createSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("システム設定が不足しています。管理者に確認してください。");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
+}
+
+async function getStampCardOrThrow(supabase, userId) {
+  const { data: card, error } = await supabase
+    .from("v_stamp_cards_current")
+    .select("*")
     .eq("user_id", userId)
+    .eq("program_code", STAMP_PROGRAM_CODE)
+    .eq("card_status", "active")
     .maybeSingle();
 
   if (error) {
     throw new Error("カード情報の取得に失敗しました。時間をおいてもう一度お試しください。");
   }
 
-  if (!user) {
+  if (!card) {
     throw new Error("カードが見つかりません。番号を確認してください。");
   }
 
-  return user;
+  return card;
 }
 
 async function syncCard(req, userId) {
@@ -192,111 +210,118 @@ async function syncCard(req, userId) {
   }
 }
 
-async function processStampAction({ req, userId, action, name }) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+async function updateDisplayNameIfNeeded(supabase, userId, name) {
+  if (typeof name !== "string") return;
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("システム設定が不足しています。管理者に確認してください。");
+  const trimmedName = name.trim();
+
+  const { error } = await supabase
+    .from("users")
+    .update({
+      display_name: trimmedName === "" ? "未登録" : trimmedName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
   }
+}
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const user = await getUserOrThrow(supabase, userId);
+async function processStampAction({ req, userId, action, name, actedBy }) {
+  const supabase = createSupabaseClient();
+  const card = await getStampCardOrThrow(supabase, userId);
 
   if (!["add", "remove"].includes(action)) {
     throw new Error("操作内容が正しくありません。もう一度お試しください。");
   }
 
-  const diff = action === "add" ? 1 : -1;
-  const nextStampCount = Math.max(
-    0,
-    Math.min(10, Number(user.stamp_count ?? 0) + diff)
-  );
-
-  const updatePayload = {
-    stamp_count: nextStampCount,
-    updated_at: new Date().toISOString(),
-  };
-
   if (typeof name === "string") {
-    const trimmedName = name.trim();
-    updatePayload.name = trimmedName === "" ? null : trimmedName;
+    await updateDisplayNameIfNeeded(supabase, userId, name);
   }
 
-  const { data: updatedUser, error: updateError } = await supabase
-    .from("users")
-    .update(updatePayload)
-    .eq("user_id", userId)
-    .select("user_id, name, stamp_count, updated_at")
-    .maybeSingle();
+  const diff = action === "add" ? 1 : -1;
 
-  if (updateError || !updatedUser) {
+  const { data: rpcResult, error: rpcError } = await supabase.rpc(
+    "increment_stamp_card",
+    {
+      p_card_id: card.card_id,
+      p_amount: diff,
+      p_acted_by: actedBy ?? "discord_bot",
+      p_reason:
+        action === "add"
+          ? "Discord bot からスタンプ追加"
+          : "Discord bot からスタンプ減算",
+    }
+  );
+
+  if (rpcError || !rpcResult || rpcResult.length === 0) {
     throw new Error("スタンプの更新に失敗しました。時間をおいてもう一度お試しください。");
   }
 
   await syncCard(req, userId);
 
-  return updatedUser;
+  return await getStampCardOrThrow(supabase, userId);
 }
 
 async function processNameUpdate({ req, userId, name }) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("システム設定が不足しています。管理者に確認してください。");
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = createSupabaseClient();
   const trimmedName = typeof name === "string" ? name.trim() : "";
 
-  const { data: updatedUser, error: updateError } = await supabase
+  const { error } = await supabase
     .from("users")
     .update({
-      name: trimmedName === "" ? null : trimmedName,
+      display_name: trimmedName === "" ? "未登録" : trimmedName,
       updated_at: new Date().toISOString(),
     })
-    .eq("user_id", userId)
-    .select("user_id, name, stamp_count, updated_at")
-    .maybeSingle();
+    .eq("user_id", userId);
 
-  if (updateError || !updatedUser) {
+  if (error) {
     throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
   }
 
   await syncCard(req, userId);
 
-  return updatedUser;
+  return await getStampCardOrThrow(supabase, userId);
 }
 
-async function createCard({ req, name }) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("システム設定が不足しています。管理者に確認してください。");
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+async function createCard({ req, name, actedBy }) {
+  const supabase = createSupabaseClient();
   const trimmedName = typeof name === "string" ? name.trim() : "";
+  const displayName = trimmedName === "" ? "未登録" : trimmedName;
+  const now = new Date().toISOString();
 
-  const { data: newUser, error: createError } = await supabase
+  const { data: newUser, error: createUserError } = await supabase
     .from("users")
     .insert({
-      name: trimmedName === "" ? null : trimmedName,
-      stamp_count: 0,
-      updated_at: new Date().toISOString(),
+      display_name: displayName,
+      status: "active",
+      updated_at: now,
     })
-    .select("user_id, name, stamp_count, updated_at")
+    .select("user_id")
     .maybeSingle();
 
-  if (createError || !newUser) {
+  if (createUserError || !newUser) {
     throw new Error("新しいカードの発行に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  const { data: createdCardRows, error: createCardError } = await supabase.rpc(
+    "create_stamp_card_for_user",
+    {
+      p_user_id: newUser.user_id,
+      p_program_code: STAMP_PROGRAM_CODE,
+      p_max_count: DEFAULT_MAX_COUNT,
+      p_note: `Discord bot から新規発行 (${actedBy ?? "discord_bot"})`,
+    }
+  );
+
+  if (createCardError || !createdCardRows || createdCardRows.length === 0) {
+    throw new Error("カード本体の作成に失敗しました。時間をおいてもう一度お試しください。");
   }
 
   await syncCard(req, newUser.user_id);
 
-  return newUser;
+  return await getStampCardOrThrow(supabase, newUser.user_id);
 }
 
 export async function POST(req) {
@@ -391,10 +416,11 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
-      const updatedUser = await processStampAction({
+      const updatedCard = await processStampAction({
         req,
         userId,
         action,
+        actedBy: operatorName,
       });
 
       const actionMessage =
@@ -405,7 +431,7 @@ export async function POST(req) {
       await editOriginalResponse(
         applicationId,
         interactionToken,
-        buildPanelPayload(updatedUser, actionMessage)
+        buildPanelPayload(updatedCard, actionMessage)
       );
 
       return new Response(null, { status: 202 });
@@ -449,16 +475,13 @@ export async function POST(req) {
           return new Response(null, { status: 202 });
         }
 
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL,
-          process.env.SUPABASE_SERVICE_ROLE_KEY
-        );
-        const user = await getUserOrThrow(supabase, userId);
+        const supabase = createSupabaseClient();
+        const card = await getStampCardOrThrow(supabase, userId);
 
         await editOriginalResponse(
           applicationId,
           interactionToken,
-          buildPanelPayload(user, "カード情報を表示しました。")
+          buildPanelPayload(card, "カード情報を表示しました。")
         );
 
         return new Response(null, { status: 202 });
@@ -545,6 +568,7 @@ export async function POST(req) {
         userId,
         action,
         name,
+        actedBy: operatorName,
       });
 
       const actionMessage =
@@ -571,16 +595,13 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY
-      );
-      const user = await getUserOrThrow(supabase, userId);
+      const supabase = createSupabaseClient();
+      const card = await getStampCardOrThrow(supabase, userId);
 
       await editOriginalResponse(
         applicationId,
         interactionToken,
-        buildPanelPayload(user, "操作パネルを表示しました。")
+        buildPanelPayload(card, "操作パネルを表示しました。")
       );
 
       return new Response(null, { status: 202 });
@@ -590,16 +611,17 @@ export async function POST(req) {
       const options = body.data?.options ?? [];
       const name = getOptionValue(options, "name");
 
-      const newUser = await createCard({
+      const newCard = await createCard({
         req,
         name,
+        actedBy: operatorName,
       });
 
       await editOriginalResponse(
         applicationId,
         interactionToken,
         buildPanelPayload(
-          newUser,
+          newCard,
           `${operatorName} さんが新しいスタンプカードを発行しました。名前変更ボタンから氏名登録もできます。`
         )
       );
