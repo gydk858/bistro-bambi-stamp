@@ -22,11 +22,7 @@ function getFixedCardUrl(userId) {
 
 function getPreviewImageUrl(card) {
   const fixedUrl = getFixedCardUrl(card.user_id);
-  const version = card.updated_at
-    ? new Date(card.updated_at).getTime()
-    : Date.now();
-
-  return `${fixedUrl}?v=${version}`;
+  return `${fixedUrl}?preview=${Date.now()}`;
 }
 
 function getOperatorName(body) {
