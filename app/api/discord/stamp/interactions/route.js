@@ -112,7 +112,7 @@ function buildPanelPayload(card, description = "操作パネルです。") {
 async function verifyDiscordRequest(req, rawBody) {
   const signature = req.headers.get("x-signature-ed25519");
   const timestamp = req.headers.get("x-signature-timestamp");
-  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  const publicKey = process.env.DISCORD_STAMP_PUBLIC_KEY;
 
   if (!signature || !timestamp || !publicKey) {
     return false;
