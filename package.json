@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "register:discord": "node --env-file=.env.local scripts/register-discord-command.js"
+    "register:discord:stamp": "node --env-file=.env.local scripts/register-discord-stamp-command.js",
+    "register:discord:bingo": "node --env-file=.env.local scripts/register-discord-bingo-command.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",
