@@ -1,33 +1,38 @@
-import Link from 'next/link'
-
-const menuItems = [
-  {
-    href: '/admin/stamp',
-    title: 'スタンプカード管理',
-    description: 'スタンプカードの新規発行、検索、氏名登録、スタンプ更新を行います。',
-    accent: '#d98b7b',
-  },
-  {
-    href: '/admin/bingo',
-    title: 'ビンゴカード管理',
-    description: 'ビンゴカードの発行、番号開放、進捗確認を行います。',
-    accent: '#c68d7b',
-  },
-  {
-    href: '/admin/attendance',
-    title: '出退勤管理',
-    description: '出勤・退勤の打刻や勤務状況の確認を行います。',
-    accent: '#b9856f',
-  },
-  {
-    href: '/admin/settings',
-    title: '設定・管理者画面',
-    description: '各種設定やメンテナンスを行います。',
-    accent: '#a87563',
-  },
-]
-
 export default function AdminMenuPage() {
+  const cardStyle = {
+    background: '#fffaf8',
+    border: '1px solid #f0d9d2',
+    borderRadius: '20px',
+    padding: '28px',
+    color: '#7a4b3a',
+    boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
+  }
+
+  const primaryMenuButtonStyle = {
+    display: 'inline-block',
+    padding: '16px 24px',
+    borderRadius: '14px',
+    border: 'none',
+    background: '#d98b7b',
+    color: '#fff',
+    textDecoration: 'none',
+    fontSize: '20px',
+    fontWeight: 800,
+    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
+  }
+
+  const secondaryMenuButtonStyle = {
+    display: 'inline-block',
+    padding: '16px 24px',
+    borderRadius: '14px',
+    border: '1px solid #e6c6bb',
+    background: '#fff',
+    color: '#7a4b3a',
+    textDecoration: 'none',
+    fontSize: '20px',
+    fontWeight: 800,
+  }
+
   return (
     <div
       style={{
@@ -39,7 +44,7 @@ export default function AdminMenuPage() {
     >
       <div
         style={{
-          maxWidth: '1500px',
+          maxWidth: '1100px',
           margin: '0 auto',
         }}
       >
@@ -51,134 +56,128 @@ export default function AdminMenuPage() {
             padding: '28px 32px',
             marginBottom: '28px',
             boxShadow: '0 12px 30px rgba(201, 157, 145, 0.10)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '20px',
-            flexWrap: 'wrap',
           }}
         >
-          <div>
-            <h1
-              style={{
-                fontSize: '42px',
-                fontWeight: 900,
-                color: '#7a4b3a',
-                margin: 0,
-              }}
-            >
-              -Bistro-Bambi
-            </h1>
-            <p
-              style={{
-                margin: '10px 0 0 0',
-                fontSize: '22px',
-                color: '#9a6b5b',
-              }}
-            >
-              管理メニュー
-            </p>
-          </div>
+          <h1
+            style={{
+              fontSize: '42px',
+              fontWeight: 900,
+              color: '#7a4b3a',
+              margin: 0,
+            }}
+          >
+            -Bistro-Bambi
+          </h1>
 
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <Link
-              href="/admin/settings"
-              style={{
-                padding: '16px 24px',
-                fontSize: '20px',
-                fontWeight: 700,
-                borderRadius: '14px',
-                border: '1px solid #e6c6bb',
-                background: '#fff',
-                color: '#7a4b3a',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              管理者画面
-            </Link>
-
-            <form action="/api/admin-logout" method="POST">
-              <button
-                type="submit"
-                style={{
-                  padding: '16px 24px',
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  borderRadius: '14px',
-                  border: '1px solid #e6c6bb',
-                  background: '#fff',
-                  color: '#7a4b3a',
-                  cursor: 'pointer',
-                }}
-              >
-                ログアウト
-              </button>
-            </form>
-          </div>
+          <p
+            style={{
+              margin: '14px 0 0 0',
+              fontSize: '22px',
+              color: '#9a6b5b',
+              lineHeight: 1.8,
+            }}
+          >
+            管理メニューです。使用するカード管理画面を選んでください。
+          </p>
         </div>
 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             gap: '24px',
+            marginBottom: '28px',
           }}
         >
-          {menuItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
+          <div style={cardStyle}>
+            <div
               style={{
-                textDecoration: 'none',
-                color: 'inherit',
+                fontSize: '30px',
+                fontWeight: 800,
+                marginBottom: '12px',
               }}
             >
-              <div
-                style={{
-                  height: '100%',
-                  background: '#fffaf8',
-                  border: '1px solid #f0d9d2',
-                  borderRadius: '24px',
-                  padding: '28px',
-                  boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                }}
-              >
-                <div
-                  style={{
-                    width: '56px',
-                    height: '56px',
-                    borderRadius: '16px',
-                    background: item.accent,
-                    marginBottom: '18px',
-                    boxShadow: '0 8px 20px rgba(0, 0, 0, 0.08)',
-                  }}
-                />
-                <h2
-                  style={{
-                    fontSize: '28px',
-                    fontWeight: 800,
-                    color: '#7a4b3a',
-                    margin: '0 0 12px 0',
-                  }}
-                >
-                  {item.title}
-                </h2>
-                <p
-                  style={{
-                    fontSize: '19px',
-                    lineHeight: 1.8,
-                    color: '#8a6457',
-                    margin: 0,
-                  }}
-                >
-                  {item.description}
-                </p>
-              </div>
-            </Link>
-          ))}
+              スタンプカード管理
+            </div>
+
+            <div
+              style={{
+                fontSize: '20px',
+                lineHeight: 1.8,
+                color: '#8a6457',
+                marginBottom: '20px',
+              }}
+            >
+              新規発行、検索、氏名登録、スタンプ更新を行います。
+            </div>
+
+            <a href="/admin/stamp" style={primaryMenuButtonStyle}>
+              スタンプカード管理を開く
+            </a>
+          </div>
+
+          <div style={cardStyle}>
+            <div
+              style={{
+                fontSize: '30px',
+                fontWeight: 800,
+                marginBottom: '12px',
+              }}
+            >
+              ビンゴカード管理
+            </div>
+
+            <div
+              style={{
+                fontSize: '20px',
+                lineHeight: 1.8,
+                color: '#8a6457',
+                marginBottom: '20px',
+              }}
+            >
+              新規発行、検索、氏名登録、番号開放、商品マッピングを行います。
+            </div>
+
+            <a href="/admin/bingo" style={primaryMenuButtonStyle}>
+              ビンゴカード管理を開く
+            </a>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: '#fffaf8',
+            border: '1px solid #f0d9d2',
+            borderRadius: '20px',
+            padding: '28px',
+            boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '28px',
+              fontWeight: 800,
+              color: '#7a4b3a',
+              marginBottom: '14px',
+            }}
+          >
+            システム設定
+          </div>
+
+          <p
+            style={{
+              margin: '0 0 18px 0',
+              fontSize: '20px',
+              lineHeight: 1.8,
+              color: '#8a6457',
+            }}
+          >
+            システム全体の設定や初期化機能はこちらから進めます。
+          </p>
+
+          <a href="/admin/system" style={secondaryMenuButtonStyle}>
+            システム設定へ
+          </a>
         </div>
       </div>
     </div>

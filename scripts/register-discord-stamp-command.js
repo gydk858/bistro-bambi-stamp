@@ -1,8 +1,10 @@
-const applicationId = process.env.DISCORD_APPLICATION_ID;
-const botToken = process.env.DISCORD_BOT_TOKEN;
+const applicationId = process.env.DISCORD_STAMP_APPLICATION_ID;
+const botToken = process.env.DISCORD_STAMP_BOT_TOKEN;
 
 if (!applicationId || !botToken) {
-  throw new Error("DISCORD_APPLICATION_ID または DISCORD_BOT_TOKEN が未設定です。");
+  throw new Error(
+    "DISCORD_STAMP_APPLICATION_ID または DISCORD_STAMP_BOT_TOKEN が未設定です。"
+  );
 }
 
 const commands = [
@@ -68,6 +70,7 @@ async function main() {
       headers: {
         Authorization: `Bot ${botToken}`,
         "Content-Type": "application/json",
+        "User-Agent": "BistroBambiStampBot/1.0",
       },
       body: JSON.stringify(commands),
     }
@@ -77,7 +80,7 @@ async function main() {
 
   if (!res.ok) {
     console.error(json);
-    throw new Error("コマンド登録に失敗しました。");
+    throw new Error("スタンプコマンド登録に失敗しました。");
   }
 
   console.log(

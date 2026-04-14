@@ -18,16 +18,16 @@ export async function POST() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { data, error } = await supabase.rpc('reset_all_stamp_cards', {
+  const { data, error } = await supabase.rpc('reset_system_runtime_data', {
     p_acted_by: 'admin_ui',
-    p_reason: '管理画面から全スタンプ一括リセット',
+    p_note: '管理画面からシステム初期化',
   })
 
   if (error) {
     return NextResponse.json(
       {
         success: false,
-        message: error.message || 'リセットに失敗しました',
+        message: error.message || 'システム初期化に失敗しました',
       },
       { status: 500 }
     )
@@ -37,8 +37,7 @@ export async function POST() {
 
   return NextResponse.json({
     success: true,
-    message: result
-      ? `すべてのスタンプをリセットしました（${result.affected_cards ?? 0}件）`
-      : 'すべてのスタンプをリセットしました',
+    message: '利用者データを初期化し、IDを1から再開する状態にしました。',
+    result,
   })
 }

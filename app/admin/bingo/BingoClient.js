@@ -14,7 +14,7 @@ export default function BingoClient() {
   const [createMessage, setCreateMessage] = useState('')
   const [openNumber, setOpenNumber] = useState('')
   const [openMessage, setOpenMessage] = useState('')
-  const [previewKey, setPreviewKey] = useState(0)
+  const [previewKey, setPreviewKey] = useState(Date.now())
   const [copiedFixed, setCopiedFixed] = useState(false)
   const [previewMessage, setPreviewMessage] = useState('')
 
@@ -34,7 +34,7 @@ export default function BingoClient() {
   }
 
   const refreshPreview = () => {
-    setPreviewKey((prev) => prev + 1)
+    setPreviewKey(Date.now())
   }
 
   const getFixedBingoUrl = (targetUserId) => {
@@ -44,16 +44,13 @@ export default function BingoClient() {
   const getPreviewUrl = (targetRecord) => {
     if (!targetRecord) return ''
     const fixedUrl = getFixedBingoUrl(targetRecord.user_id)
-    const version = targetRecord.updated_at
-      ? new Date(targetRecord.updated_at).getTime()
-      : Date.now()
-
-    return `${fixedUrl}?v=${version}`
+    return `${fixedUrl}?preview=${previewKey}`
   }
 
   const syncBingoCardImage = async (targetUserId) => {
     const syncRes = await fetch(`/api/sync-bingo-card/${targetUserId}`, {
       method: 'POST',
+      cache: 'no-store',
     })
 
     const syncJson = await syncRes.json()
@@ -121,6 +118,23 @@ export default function BingoClient() {
     return { card, cellRows }
   }
 
+  const hasArchivedBingoCardByUserId = async (targetUserId) => {
+    const { data, error } = await supabase
+      .from('cards')
+      .select('card_id, status, card_types!inner(code), card_programs!inner(code)')
+      .eq('user_id', Number(targetUserId))
+      .eq('status', 'archived')
+      .eq('card_types.code', 'bingo')
+      .eq('card_programs.code', 'bingo_regular')
+      .limit(1)
+
+    if (error) {
+      return false
+    }
+
+    return Array.isArray(data) && data.length > 0
+  }
+
   const searchCard = async () => {
     setMessage('')
     setCreateMessage('')
@@ -146,10 +160,18 @@ export default function BingoClient() {
       setCardRecord(null)
       setCells([])
       setEditName('')
+
+      const isArchived = await hasArchivedBingoCardByUserId(userId)
+
+      if (isArchived) {
+        setMessage('このビンゴカードは現在使用できません')
+        return
+      }
+
       setMessage(
         error instanceof Error
           ? error.message
-          : 'ビンゴカードの取得に失敗しました'
+          : 'ビンゴカードが見つかりません'
       )
     }
   }
@@ -657,7 +679,7 @@ export default function BingoClient() {
             </a>
 
             <a
-              href="/admin/settings"
+              href="/admin/bingo/manage"
               style={{
                 padding: '16px 24px',
                 fontSize: '20px',
@@ -671,7 +693,7 @@ export default function BingoClient() {
                 alignItems: 'center',
               }}
             >
-              管理者画面
+              ビンゴ管理
             </a>
 
             <button onClick={logout} style={subButtonStyle}>
@@ -691,7 +713,15 @@ export default function BingoClient() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>① ビンゴカード新規発行</div>
-              <p style={{ fontSize: '20px', color: '#8a6457', marginTop: 0, marginBottom: '18px', lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
                 新しいビンゴカードを発行します。
               </p>
 
@@ -700,7 +730,18 @@ export default function BingoClient() {
               </button>
 
               {createMessage && (
-                <p style={{ marginTop: '18px', fontSize: '20px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {createMessage}
                 </p>
               )}
@@ -709,13 +750,22 @@ export default function BingoClient() {
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>② ビンゴカード検索</div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'center',
+                }}
+              >
                 <input
                   type="text"
                   inputMode="numeric"
                   placeholder="番号を入力"
                   value={userId}
-                  onChange={(e) => setUserId(normalizeToHalfWidthNumber(e.target.value))}
+                  onChange={(e) =>
+                    setUserId(normalizeToHalfWidthNumber(e.target.value))
+                  }
                   style={inputStyle}
                 />
                 <button onClick={searchCard} style={primaryButtonStyle}>
@@ -724,7 +774,18 @@ export default function BingoClient() {
               </div>
 
               {message && (
-                <p style={{ marginTop: '18px', fontSize: '20px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {message}
                 </p>
               )}
@@ -733,7 +794,14 @@ export default function BingoClient() {
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>③ 氏名登録・修正</div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'center',
+                }}
+              >
                 <input
                   type="text"
                   placeholder="氏名を入力"
@@ -746,12 +814,31 @@ export default function BingoClient() {
                 </button>
               </div>
 
-              <p style={{ fontSize: '18px', color: '#9a6b5b', marginTop: '14px', marginBottom: 0, lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '18px',
+                  color: '#9a6b5b',
+                  marginTop: '14px',
+                  marginBottom: 0,
+                  lineHeight: 1.7,
+                }}
+              >
                 空欄で保存すると、氏名未登録に戻せます。
               </p>
 
               {nameMessage && (
-                <p style={{ marginTop: '18px', fontSize: '20px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {nameMessage}
                 </p>
               )}
@@ -759,17 +846,34 @@ export default function BingoClient() {
 
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>④ 番号を開く</div>
-              <p style={{ fontSize: '20px', color: '#8a6457', marginTop: 0, marginBottom: '18px', lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
                 商品に対応する番号を入力して、該当マスを開きます。
               </p>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'center',
+                }}
+              >
                 <input
                   type="text"
                   inputMode="numeric"
                   placeholder="開ける番号を入力"
                   value={openNumber}
-                  onChange={(e) => setOpenNumber(normalizeToHalfWidthNumber(e.target.value))}
+                  onChange={(e) =>
+                    setOpenNumber(normalizeToHalfWidthNumber(e.target.value))
+                  }
                   style={inputStyle}
                 />
                 <button onClick={openBingoNumber} style={primaryButtonStyle}>
@@ -778,7 +882,18 @@ export default function BingoClient() {
               </div>
 
               {openMessage && (
-                <p style={{ marginTop: '18px', fontSize: '20px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {openMessage}
                 </p>
               )}
@@ -786,7 +901,15 @@ export default function BingoClient() {
 
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>⑤ 商品番号マッピング</div>
-              <p style={{ fontSize: '20px', color: '#8a6457', marginTop: 0, marginBottom: '18px', lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
                 商品名と対応番号を登録します。画像はダイアログから登録し、画面上ではプレビュー表示にします。
               </p>
 
@@ -904,13 +1027,32 @@ export default function BingoClient() {
               </div>
 
               {mappingMessage && (
-                <p style={{ marginTop: '18px', fontSize: '20px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: '18px',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {mappingMessage}
                 </p>
               )}
 
               <div style={{ marginTop: '20px' }}>
-                <p style={{ fontSize: '20px', fontWeight: 700, color: '#7a4b3a', marginTop: 0, marginBottom: '12px' }}>
+                <p
+                  style={{
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    marginTop: 0,
+                    marginBottom: '12px',
+                  }}
+                >
                   登録済み一覧
                 </p>
 
@@ -1029,18 +1171,35 @@ export default function BingoClient() {
 
               {cardRecord ? (
                 <>
-                  <p style={infoRowStyle}><strong>番号：</strong> {cardRecord.user_id}</p>
-                  <p style={infoRowStyle}><strong>カードID：</strong> {cardRecord.card_id}</p>
-                  <p style={infoRowStyle}><strong>氏名：</strong> {cardRecord.display_name || '未登録'}</p>
-                  <p style={infoRowStyle}><strong>ビンゴ数：</strong> {cardRecord.current_bingo_count}</p>
-                  <p style={infoRowStyle}><strong>サイズ：</strong> {cardRecord.grid_size} × {cardRecord.grid_size}</p>
+                  <p style={infoRowStyle}>
+                    <strong>番号：</strong> {cardRecord.user_id}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>カードID：</strong> {cardRecord.card_id}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>氏名：</strong> {cardRecord.display_name || '未登録'}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>ビンゴ数：</strong> {cardRecord.current_bingo_count}
+                  </p>
+                  <p style={infoRowStyle}>
+                    <strong>サイズ：</strong> {cardRecord.grid_size} × {cardRecord.grid_size}
+                  </p>
 
                   <div style={{ marginTop: '18px' }}>
                     <p style={{ ...infoRowStyle, marginBottom: '8px' }}>
                       <strong>カードURL：</strong>
                     </p>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
                       <a
                         href={getFixedBingoUrl(cardRecord.user_id)}
                         target="_blank"
@@ -1067,13 +1226,27 @@ export default function BingoClient() {
                       </button>
                     </div>
 
-                    <p style={{ fontSize: '16px', color: '#9a6b5b', marginTop: '8px', marginBottom: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '16px',
+                        color: '#9a6b5b',
+                        marginTop: '8px',
+                        marginBottom: 0,
+                      }}
+                    >
                       コピー機や実運用で使う固定URLです。
                     </p>
                   </div>
                 </>
               ) : (
-                <p style={{ fontSize: '22px', color: '#9a6b5b', margin: 0, lineHeight: 1.8 }}>
+                <p
+                  style={{
+                    fontSize: '22px',
+                    color: '#9a6b5b',
+                    margin: 0,
+                    lineHeight: 1.8,
+                  }}
+                >
                   ビンゴカードを検索すると、ここに情報が表示されます。
                 </p>
               )}
@@ -1082,12 +1255,32 @@ export default function BingoClient() {
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>ビンゴカード画像プレビュー</div>
 
-              <p style={{ fontSize: '20px', color: '#8a6457', marginTop: 0, marginBottom: '18px', lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
                 名前や開放済みマスを反映した画像です。
               </p>
 
               {previewMessage && (
-                <p style={{ marginTop: 0, marginBottom: '18px', fontSize: '18px', fontWeight: 700, color: '#7a4b3a', background: '#fff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #f0d9d2' }}>
+                <p
+                  style={{
+                    marginTop: 0,
+                    marginBottom: '18px',
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    color: '#7a4b3a',
+                    background: '#fff',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid #f0d9d2',
+                  }}
+                >
                   {previewMessage}
                 </p>
               )}
@@ -1104,10 +1297,10 @@ export default function BingoClient() {
                     }}
                   >
                     <img
-                      src={`${getPreviewUrl(cardRecord)}&preview=${previewKey}`}
+                      src={getPreviewUrl(cardRecord)}
                       alt={`ビンゴカード ${cardRecord.user_id}`}
                       onError={() => {
-                        setPreviewMessage('画像がまだ生成されていないか、同期に失敗しています。検索し直すか、もう一度開放操作を試してください。')
+                        setPreviewMessage('画像がまだ生成されていないか、同期に失敗しています。検索し直すか、もう一度操作を試してください。')
                       }}
                       onLoad={() => {
                         setPreviewMessage('')
@@ -1139,7 +1332,14 @@ export default function BingoClient() {
                     textAlign: 'center',
                   }}
                 >
-                  <p style={{ fontSize: '24px', color: '#9a6b5b', margin: 0, lineHeight: 1.8 }}>
+                  <p
+                    style={{
+                      fontSize: '24px',
+                      color: '#9a6b5b',
+                      margin: 0,
+                      lineHeight: 1.8,
+                    }}
+                  >
                     ビンゴカードを検索すると、ここに画像プレビューが表示されます。
                   </p>
                 </div>
@@ -1149,7 +1349,15 @@ export default function BingoClient() {
             <div style={cardBoxStyle}>
               <div style={sectionTitleStyle}>ビンゴカード</div>
 
-              <p style={{ fontSize: '20px', color: '#8a6457', marginTop: 0, marginBottom: '18px', lineHeight: 1.7 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#8a6457',
+                  marginTop: 0,
+                  marginBottom: '18px',
+                  lineHeight: 1.7,
+                }}
+              >
                 開いたマスにはシンプルなマークを表示します。将来的に商品画像表示へ拡張できます。
               </p>
 

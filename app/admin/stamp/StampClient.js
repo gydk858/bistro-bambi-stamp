@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 const SUPABASE_PUBLIC_CARD_BASE =
   'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live'
 
-export default function AdminClient() {
+export default function StampClient() {
   const [userId, setUserId] = useState('')
   const [cardRecord, setCardRecord] = useState(null)
   const [message, setMessage] = useState('')
@@ -14,7 +14,7 @@ export default function AdminClient() {
   const [createMessage, setCreateMessage] = useState('')
   const [editName, setEditName] = useState('')
   const [nameMessage, setNameMessage] = useState('')
-  const [previewKey, setPreviewKey] = useState(0)
+  const [previewKey, setPreviewKey] = useState(Date.now())
   const [copiedFixed, setCopiedFixed] = useState(false)
 
   const normalizeToHalfWidthNumber = (value) => {
@@ -26,7 +26,7 @@ export default function AdminClient() {
   }
 
   const refreshPreview = () => {
-    setPreviewKey((prev) => prev + 1)
+    setPreviewKey(Date.now())
   }
 
   const getFixedCardUrl = (targetUserId) => {
@@ -36,16 +36,13 @@ export default function AdminClient() {
   const getPreviewUrl = (targetRecord) => {
     if (!targetRecord) return ''
     const fixedUrl = getFixedCardUrl(targetRecord.user_id)
-    const version = targetRecord.updated_at
-      ? new Date(targetRecord.updated_at).getTime()
-      : Date.now()
-
-    return `${fixedUrl}?v=${version}`
+    return `${fixedUrl}?preview=${previewKey}`
   }
 
   const syncCardImage = async (targetUserId) => {
     const syncRes = await fetch(`/api/sync-card/${targetUserId}`, {
       method: 'POST',
+      cache: 'no-store',
     })
 
     const syncJson = await syncRes.json()
@@ -84,25 +81,26 @@ export default function AdminClient() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('v_stamp_cards_current')
-      .select('*')
-      .eq('user_id', Number(userId))
-      .eq('program_code', 'stamp_regular')
-      .eq('card_status', 'active')
-      .maybeSingle()
+    try {
+      const data = await fetchStampCardByUserId(userId)
 
-    if (error || !data) {
+      await syncCardImage(data.user_id)
+
+      const refreshedData = await fetchStampCardByUserId(data.user_id)
+
+      setCardRecord(refreshedData)
+      setEditName(refreshedData.display_name || '')
+      setMessage('カードを表示しました')
+      refreshPreview()
+    } catch (error) {
       setCardRecord(null)
       setEditName('')
-      setMessage('カードが見つかりません')
-      return
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'カードが見つかりません'
+      )
     }
-
-    setCardRecord(data)
-    setEditName(data.display_name || '')
-    setMessage('カードを表示しました')
-    refreshPreview()
   }
 
   const createCard = async () => {
@@ -312,7 +310,7 @@ export default function AdminClient() {
       await navigator.clipboard.writeText(fullUrl)
       setCopiedFixed(true)
       setTimeout(() => setCopiedFixed(false), 2000)
-    } catch (error) {
+    } catch {
       setCopiedFixed(false)
       setMessage('固定URLのコピーに失敗しました')
     }
@@ -494,7 +492,7 @@ export default function AdminClient() {
             </a>
 
             <a
-              href="/admin/settings"
+              href="/admin/stamp/manage"
               style={{
                 padding: '16px 24px',
                 fontSize: '20px',
@@ -508,7 +506,7 @@ export default function AdminClient() {
                 alignItems: 'center',
               }}
             >
-              管理者画面
+              スタンプ管理
             </a>
 
             <button onClick={logout} style={subButtonStyle}>
@@ -799,7 +797,7 @@ export default function AdminClient() {
                     }}
                   >
                     <img
-                      src={`${getPreviewUrl(cardRecord)}&preview=${previewKey}`}
+                      src={getPreviewUrl(cardRecord)}
                       alt={`カード ${cardRecord.user_id}`}
                       style={{
                         width: '100%',

@@ -164,6 +164,25 @@ function createSupabaseClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+async function hasArchivedBingoCardByUserId(supabase, userId) {
+  const { data, error } = await supabase
+    .from("cards")
+    .select(`
+      card_id,
+      status,
+      card_types!inner(code),
+      card_programs!inner(code)
+    `)
+    .eq("user_id", Number(userId))
+    .eq("status", "archived")
+    .eq("card_types.code", "bingo")
+    .eq("card_programs.code", BINGO_PROGRAM_CODE)
+    .limit(1);
+
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function getBingoCardOrThrow(supabase, userId) {
   const { data: card, error } = await supabase
     .from("v_bingo_cards_current")
@@ -178,7 +197,13 @@ async function getBingoCardOrThrow(supabase, userId) {
   }
 
   if (!card) {
-    throw new Error("カードが見つかりません。番号を確認してください。");
+    const isArchived = await hasArchivedBingoCardByUserId(supabase, userId);
+
+    if (isArchived) {
+      throw new Error("このビンゴカードは現在使用できません。");
+    }
+
+    throw new Error("ビンゴカードが見つかりません。番号を確認してください。");
   }
 
   return card;

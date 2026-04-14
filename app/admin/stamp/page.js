@@ -1,5 +1,5 @@
-import AdminClient from './AdminClient'
+import StampClient from './StampClient'
 
 export default function AdminStampPage() {
-  return <AdminClient />
+  return <StampClient />
 }

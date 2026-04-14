@@ -174,6 +174,25 @@ function createSupabaseClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+async function hasArchivedStampCardByUserId(supabase, userId) {
+  const { data, error } = await supabase
+    .from("cards")
+    .select(`
+      card_id,
+      status,
+      card_types!inner(code),
+      card_programs!inner(code)
+    `)
+    .eq("user_id", Number(userId))
+    .eq("status", "archived")
+    .eq("card_types.code", "stamp")
+    .eq("card_programs.code", STAMP_PROGRAM_CODE)
+    .limit(1);
+
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function getStampCardOrThrow(supabase, userId) {
   const { data: card, error } = await supabase
     .from("v_stamp_cards_current")
@@ -188,7 +207,13 @@ async function getStampCardOrThrow(supabase, userId) {
   }
 
   if (!card) {
-    throw new Error("カードが見つかりません。番号を確認してください。");
+    const isArchived = await hasArchivedStampCardByUserId(supabase, userId);
+
+    if (isArchived) {
+      throw new Error("このスタンプカードは現在使用できません。");
+    }
+
+    throw new Error("スタンプカードが見つかりません。番号を確認してください。");
   }
 
   return card;
