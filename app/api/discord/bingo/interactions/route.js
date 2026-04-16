@@ -54,11 +54,6 @@ function buildMainEmbed(card, description = "") {
             value: String(card.current_bingo_count ?? 0),
             inline: true,
           },
-          {
-            name: "カードURL",
-            value: getFixedCardUrl(card.user_id),
-            inline: false,
-          },
         ],
         image: {
           url: getPreviewImageUrl(card),

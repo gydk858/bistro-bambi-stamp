@@ -58,11 +58,6 @@ function buildMainEmbed(card, description = "") {
             )}`,
             inline: true,
           },
-          {
-            name: "カードURL",
-            value: getFixedCardUrl(card.user_id),
-            inline: false,
-          },
         ],
         image: {
           url: getPreviewImageUrl(card),
