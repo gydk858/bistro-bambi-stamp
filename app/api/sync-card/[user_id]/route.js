@@ -140,37 +140,22 @@ export async function POST(req, context) {
     const displayNameRaw = card.display_name
       ? String(card.display_name)
       : "未登録";
+
     const displayName = `${displayNameRaw.slice(0, MAX_NAME_LENGTH)} 様`;
-    const displayId = `No. ${String(card.user_id ?? userId)}`;
+
+    // No. はカード側に印字済みなので数字だけ
+    const displayId = String(card.user_id ?? userId);
 
     const textColor = "#764735";
     const shadowColor = "#fff8f5";
 
-    const nameTextImage = await makeColoredTextImage({
-      text: displayName,
-      font: "Rounded-X M+ 1p",
-      fontfile: fontPath,
-      width: 560,
-      dpi: 170,
-      color: textColor,
-    });
-
-    const nameShadowImage = await makeColoredTextImage({
-      text: displayName,
-      font: "Rounded-X M+ 1p",
-      fontfile: fontPath,
-      width: 560,
-      dpi: 170,
-      color: shadowColor,
-    });
-
+    // No 数字：少し大きく
     const idTextImage = await makeColoredTextImage({
       text: displayId,
       font: "Rounded-X M+ 1p",
       fontfile: fontPath,
-      width: 260,
-      dpi: 170,
-      align: "right",
+      width: 120,
+      dpi: 180,
       color: textColor,
     });
 
@@ -178,19 +163,39 @@ export async function POST(req, context) {
       text: displayId,
       font: "Rounded-X M+ 1p",
       fontfile: fontPath,
-      width: 260,
-      dpi: 170,
-      align: "right",
+      width: 120,
+      dpi: 180,
+      color: shadowColor,
+    });
+
+    // Name：少し大きく
+    const nameTextImage = await makeColoredTextImage({
+      text: displayName,
+      font: "Rounded-X M+ 1p",
+      fontfile: fontPath,
+      width: 500,
+      dpi: 180,
+      color: textColor,
+    });
+
+    const nameShadowImage = await makeColoredTextImage({
+      text: displayName,
+      font: "Rounded-X M+ 1p",
+      fontfile: fontPath,
+      width: 500,
+      dpi: 180,
       color: shadowColor,
     });
 
     const resultBuffer = await baseImage
       .composite([
-        { input: nameShadowImage, left: 87, top: 26 },
-        { input: nameTextImage, left: 85, top: 24 },
+        // No欄：さらに右下へ
+        { input: idShadowImage, left: 595, top: 66 },
+        { input: idTextImage, left: 593, top: 64 },
 
-        { input: idShadowImage, left: 917, top: 26 },
-        { input: idTextImage, left: 915, top: 24 },
+        // Name欄：さらに右下へ
+        { input: nameShadowImage, left: 595, top: 132 },
+        { input: nameTextImage, left: 593, top: 130 },
       ])
       .png()
       .toBuffer();
