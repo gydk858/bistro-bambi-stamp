@@ -10,8 +10,9 @@ export const revalidate = 0;
 const MAX_NAME_LENGTH = 12;
 const STAMP_PROGRAM_CODE = "stamp_regular";
 
+// 10 → 12 に変更
 function clampStampCount(value) {
-  return Math.max(0, Math.min(10, Number(value ?? 0)));
+  return Math.max(0, Math.min(12, Number(value ?? 0)));
 }
 
 async function makeColoredTextImage({
@@ -146,10 +147,11 @@ export async function POST(req, context) {
     // No. はカード側に印字済みなので数字だけ
     const displayId = String(card.user_id ?? userId);
 
-    const textColor = "#764735";
-    const shadowColor = "#fff8f5";
+    // 茶色 → 緑系に変更
+    const textColor = "#8E9C72";
+    const shadowColor = "#F7F8F2";
 
-    // No 数字：少し大きく
+    // No 数字
     const idTextImage = await makeColoredTextImage({
       text: displayId,
       font: "Rounded-X M+ 1p",
@@ -168,7 +170,7 @@ export async function POST(req, context) {
       color: shadowColor,
     });
 
-    // Name：少し大きく
+    // Name
     const nameTextImage = await makeColoredTextImage({
       text: displayName,
       font: "Rounded-X M+ 1p",
@@ -189,11 +191,11 @@ export async function POST(req, context) {
 
     const resultBuffer = await baseImage
       .composite([
-        // No欄：さらに右下へ
+        // No欄
         { input: idShadowImage, left: 595, top: 66 },
         { input: idTextImage, left: 593, top: 64 },
 
-        // Name欄：さらに右下へ
+        // Name欄
         { input: nameShadowImage, left: 595, top: 132 },
         { input: nameTextImage, left: 593, top: 130 },
       ])

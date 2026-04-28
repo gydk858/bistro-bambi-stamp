@@ -131,7 +131,7 @@ export default function StampClient() {
       {
         p_user_id: createdUser.user_id,
         p_program_code: 'stamp_regular',
-        p_max_count: 10,
+        p_max_count: 12,
         p_note: '管理画面から新規発行',
       }
     )

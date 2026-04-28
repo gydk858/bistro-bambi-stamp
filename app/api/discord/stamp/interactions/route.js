@@ -9,7 +9,7 @@ const LIVE_CARD_BASE =
   "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live";
 
 const STAMP_PROGRAM_CODE = "stamp_regular";
-const DEFAULT_MAX_COUNT = 10;
+const DEFAULT_MAX_COUNT = 12;
 
 function getOptionValue(options, name) {
   if (!Array.isArray(options)) return undefined;
