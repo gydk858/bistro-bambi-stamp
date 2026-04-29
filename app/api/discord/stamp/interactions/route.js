@@ -95,11 +95,6 @@ function buildStaffEmbed(card, description = "") {
             inline: true,
           },
           {
-            name: "氏名",
-            value: card.display_name ?? "未登録",
-            inline: true,
-          },
-          {
             name: "現在の出勤数",
             value: `${String(card.current_count ?? 0)} / ${String(
               card.max_count ?? DEFAULT_STAFF_MAX_COUNT
