@@ -3,26 +3,26 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-const SUPABASE_PUBLIC_CARD_BASE =
-  'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live'
+const STAFF_PROGRAM_CODE = 'stamp_staff_attendance'
+const STAFF_MAX_COUNT = 15
+const STAFF_PUBLIC_CARD_BASE =
+  'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live-staff'
 
-export default function StampClient() {
-  const [userId, setUserId] = useState('')
+export default function StaffCardClient() {
+  const [staffCode, setStaffCode] = useState('')
+  const [createStaffCode, setCreateStaffCode] = useState('')
+  const [createStaffName, setCreateStaffName] = useState('')
+
   const [cardRecord, setCardRecord] = useState(null)
   const [message, setMessage] = useState('')
-
   const [createMessage, setCreateMessage] = useState('')
   const [editName, setEditName] = useState('')
   const [nameMessage, setNameMessage] = useState('')
-  const [previewKey, setPreviewKey] = useState(Date.now())
   const [copiedFixed, setCopiedFixed] = useState(false)
+  const [previewKey, setPreviewKey] = useState(Date.now())
 
-  const normalizeToHalfWidthNumber = (value) => {
-    return value
-      .replace(/[０-９]/g, (s) =>
-        String.fromCharCode(s.charCodeAt(0) - 0xfee0)
-      )
-      .replace(/[^0-9]/g, '')
+  const normalizeStaffCode = (value) => {
+    return value.replace(/\s+/g, '').trim()
   }
 
   const refreshPreview = () => {
@@ -30,7 +30,7 @@ export default function StampClient() {
   }
 
   const getFixedCardUrl = (targetUserId) => {
-    return `${SUPABASE_PUBLIC_CARD_BASE}/${targetUserId}.png`
+    return `${STAFF_PUBLIC_CARD_BASE}/${targetUserId}.png`
   }
 
   const getPreviewUrl = (targetRecord) => {
@@ -39,8 +39,8 @@ export default function StampClient() {
     return `${fixedUrl}?preview=${previewKey}`
   }
 
-  const syncCardImage = async (targetUserId) => {
-    const syncRes = await fetch(`/api/sync-card/${targetUserId}`, {
+  const syncStaffCardImage = async (targetUserId) => {
+    const syncRes = await fetch(`/api/sync-staff-card/${targetUserId}`, {
       method: 'POST',
       cache: 'no-store',
     })
@@ -48,118 +48,162 @@ export default function StampClient() {
     const syncJson = await syncRes.json()
 
     if (!syncRes.ok || !syncJson.ok) {
-      throw new Error(syncJson.error || syncJson.message || 'カード画像の同期に失敗しました')
+      throw new Error(
+        syncJson.error || syncJson.message || '従業員カード画像の同期に失敗しました'
+      )
     }
 
     return syncJson
   }
 
-  const fetchStampCardByUserId = async (targetUserId) => {
+  const fetchStaffCardByCode = async (targetStaffCode) => {
+    const normalized = normalizeStaffCode(targetStaffCode)
+
     const { data, error } = await supabase
-      .from('v_stamp_cards_current')
+      .from('v_staff_stamp_cards_current')
       .select('*')
-      .eq('user_id', Number(targetUserId))
-      .eq('program_code', 'stamp_regular')
+      .eq('staff_code', normalized)
+      .eq('program_code', STAFF_PROGRAM_CODE)
       .eq('card_status', 'active')
       .maybeSingle()
 
     if (error) {
-      throw new Error('カード情報の取得に失敗しました')
+      throw new Error('従業員カード情報の取得に失敗しました')
     }
 
     if (!data) {
-      throw new Error('このスタンプカードは現在使用できません')
+      throw new Error('この従業員カードは見つかりません')
     }
 
     return data
   }
 
-  const searchUser = async () => {
+  const searchStaffCard = async () => {
     setMessage('')
     setNameMessage('')
     setCopiedFixed(false)
 
-    if (!userId) {
+    const normalized = normalizeStaffCode(staffCode)
+
+    if (!normalized) {
       setCardRecord(null)
       setEditName('')
-      setMessage('番号を入力してください')
+      setMessage('従業員コードを入力してください')
       return
     }
 
     try {
-      const data = await fetchStampCardByUserId(userId)
-
-      await syncCardImage(data.user_id)
-
-      const refreshedData = await fetchStampCardByUserId(data.user_id)
+      const data = await fetchStaffCardByCode(normalized)
+      await syncStaffCardImage(data.user_id)
+      const refreshedData = await fetchStaffCardByCode(normalized)
 
       setCardRecord(refreshedData)
       setEditName(refreshedData.display_name || '')
-      setMessage('カードを表示しました')
+      setMessage('従業員カードを表示しました')
       refreshPreview()
     } catch (error) {
       setCardRecord(null)
       setEditName('')
       setMessage(
-        error instanceof Error ? error.message : 'カード情報の取得に失敗しました'
+        error instanceof Error ? error.message : '従業員カード情報の取得に失敗しました'
       )
     }
   }
 
-  const createCard = async () => {
+  const createStaffCard = async () => {
     setCreateMessage('')
     setMessage('')
     setNameMessage('')
     setCopiedFixed(false)
 
+    const normalizedCode = normalizeStaffCode(createStaffCode)
+    const trimmedName = createStaffName.trim()
+
+    if (!normalizedCode) {
+      setCreateMessage('従業員コードを入力してください')
+      return
+    }
+
     try {
+      const { data: existingProfile, error: existingProfileError } = await supabase
+        .from('employee_profiles')
+        .select('employee_id')
+        .eq('staff_code', normalizedCode)
+        .maybeSingle()
+
+      if (existingProfileError) {
+        throw new Error(`従業員コードの確認に失敗しました: ${existingProfileError.message}`)
+      }
+
+      if (existingProfile) {
+        throw new Error('その従業員コードはすでに使用されています')
+      }
+
       const now = new Date().toISOString()
+      const displayName = trimmedName === '' ? '未登録' : trimmedName
 
       const { data: createdUser, error: createUserError } = await supabase
         .from('users')
         .insert({
-          display_name: '未登録',
+          display_name: displayName,
           status: 'active',
           updated_at: now,
         })
-        .select('user_id, display_name, updated_at')
+        .select('user_id, display_name')
         .maybeSingle()
 
       if (createUserError || !createdUser) {
-        throw new Error('ユーザー作成に失敗しました')
+        throw new Error('従業員ユーザーの作成に失敗しました')
+      }
+
+      const { error: createProfileError } = await supabase
+        .from('employee_profiles')
+        .insert({
+          user_id: createdUser.user_id,
+          staff_code: normalizedCode,
+          employee_name: trimmedName === '' ? null : trimmedName,
+          employment_status: 'active',
+        })
+
+      if (createProfileError) {
+        throw new Error(
+          `従業員プロフィールの作成に失敗しました: ${createProfileError.message}`
+        )
       }
 
       const { data: createdCardRows, error: createCardError } = await supabase.rpc(
         'create_stamp_card_for_user',
         {
           p_user_id: createdUser.user_id,
-          p_program_code: 'stamp_regular',
-          p_max_count: 12,
-          p_note: '管理画面から新規発行',
+          p_program_code: STAFF_PROGRAM_CODE,
+          p_max_count: STAFF_MAX_COUNT,
+          p_note: '管理画面から従業員カード新規発行',
         }
       )
 
       if (createCardError) {
-        throw new Error(`カード発行に失敗しました: ${createCardError.message}`)
+        throw new Error(`従業員カード発行に失敗しました: ${createCardError.message}`)
       }
 
       if (!createdCardRows || createdCardRows.length === 0) {
-        throw new Error('カード発行結果を取得できませんでした')
+        throw new Error('従業員カード発行結果を取得できませんでした')
       }
 
-      await syncCardImage(createdUser.user_id)
+      await syncStaffCardImage(createdUser.user_id)
 
-      const fetchedCard = await fetchStampCardByUserId(createdUser.user_id)
+      const fetchedCard = await fetchStaffCardByCode(normalizedCode)
 
-      setCreateMessage(`カード番号 ${createdUser.user_id} を発行しました`)
-      setMessage('新規カードを発行しました')
-      setUserId(String(createdUser.user_id))
+      setCreateMessage(`従業員コード ${normalizedCode} を発行しました`)
+      setMessage('従業員カードを新規発行しました')
+      setStaffCode(normalizedCode)
       setCardRecord(fetchedCard)
       setEditName(fetchedCard.display_name || '')
+      setCreateStaffCode('')
+      setCreateStaffName('')
       refreshPreview()
     } catch (error) {
       setCreateMessage(
-        error instanceof Error ? error.message : 'カード発行に失敗しました'
+        error instanceof Error ? error.message : '従業員カード発行に失敗しました'
       )
     }
   }
@@ -169,139 +213,124 @@ export default function StampClient() {
     setCopiedFixed(false)
 
     if (!cardRecord) {
-      setNameMessage('先にカードを検索してください')
+      setNameMessage('先に従業員カードを検索してください')
       return
     }
 
     const trimmedName = editName.trim()
+    const displayName = trimmedName === '' ? '未登録' : trimmedName
 
-    const { data, error } = await supabase
+    const { data: updatedUser, error: updateUserError } = await supabase
       .from('users')
       .update({
-        display_name: trimmedName === '' ? '未登録' : trimmedName,
+        display_name: displayName,
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', cardRecord.user_id)
       .select()
       .maybeSingle()
 
-    if (error || !data) {
+    if (updateUserError || !updatedUser) {
       setNameMessage('氏名の保存に失敗しました')
       return
     }
 
+    const { error: updateProfileError } = await supabase
+      .from('employee_profiles')
+      .update({
+        employee_name: trimmedName === '' ? null : trimmedName,
+      })
+      .eq('user_id', cardRecord.user_id)
+
+    if (updateProfileError) {
+      setNameMessage('従業員プロフィールの更新に失敗しました')
+      return
+    }
+
     try {
-      await syncCardImage(data.user_id)
+      await syncStaffCardImage(cardRecord.user_id)
     } catch (error) {
       setNameMessage(
         error instanceof Error
           ? error.message
-          : 'カード画像の同期に失敗しました'
+          : '従業員カード画像の同期に失敗しました'
       )
       return
     }
 
-    setCardRecord((prev) =>
-      prev
-        ? {
-            ...prev,
-            display_name: data.display_name,
-            updated_at: data.updated_at,
-          }
-        : prev
-    )
-    setEditName(data.display_name || '')
+    const refreshedData = await fetchStaffCardByCode(cardRecord.staff_code)
+
+    setCardRecord(refreshedData)
+    setEditName(refreshedData.display_name || '')
     setNameMessage('氏名を保存しました')
     refreshPreview()
   }
 
-  const updateStampCount = async (diff) => {
+  const updateAttendanceCount = async (diff) => {
     if (!cardRecord) return
 
     const { data, error } = await supabase.rpc('increment_stamp_card', {
       p_card_id: cardRecord.card_id,
       p_amount: diff,
-      p_acted_by: 'admin_ui',
-      p_reason: diff > 0 ? '管理画面からスタンプ追加' : '管理画面からスタンプ減算',
+      p_acted_by: 'admin_staff_ui',
+      p_reason: diff > 0 ? '管理画面から出勤数追加' : '管理画面から出勤数減算',
     })
 
     if (error || !data || data.length === 0) {
-      setMessage('スタンプ更新に失敗しました')
+      setMessage('出勤数更新に失敗しました')
       return
     }
 
-    const updated = data[0]
-
     try {
-      await syncCardImage(cardRecord.user_id)
+      await syncStaffCardImage(cardRecord.user_id)
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : 'カード画像の同期に失敗しました'
+          : '従業員カード画像の同期に失敗しました'
       )
       return
     }
 
-    setCardRecord((prev) =>
-      prev
-        ? {
-            ...prev,
-            current_count: updated.current_count,
-            max_count: updated.max_count,
-            completed_at: updated.completed_at,
-            updated_at: new Date().toISOString(),
-          }
-        : prev
-    )
+    const refreshedData = await fetchStaffCardByCode(cardRecord.staff_code)
 
-    setMessage(`スタンプ数を ${updated.current_count} に更新しました`)
-    refreshPreview()
+    setCardRecord(refreshedData)
+    setMessage(`出勤数を ${refreshedData.current_count} に更新しました`)
     setCopiedFixed(false)
+    refreshPreview()
   }
 
-  const resetStampCard = async () => {
+  const resetStaffCard = async () => {
     if (!cardRecord) return
 
     const { data, error } = await supabase.rpc('reset_stamp_card', {
       p_card_id: cardRecord.card_id,
-      p_acted_by: 'admin_ui',
-      p_reason: '管理画面からリセット',
+      p_acted_by: 'admin_staff_ui',
+      p_reason: '管理画面から従業員カードリセット',
     })
 
     if (error || !data || data.length === 0) {
-      setMessage('スタンプのリセットに失敗しました')
+      setMessage('出勤数のリセットに失敗しました')
       return
     }
 
-    const resetResult = data[0]
-
     try {
-      await syncCardImage(cardRecord.user_id)
+      await syncStaffCardImage(cardRecord.user_id)
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : 'カード画像の同期に失敗しました'
+          : '従業員カード画像の同期に失敗しました'
       )
       return
     }
 
-    setCardRecord((prev) =>
-      prev
-        ? {
-            ...prev,
-            current_count: resetResult.current_count,
-            max_count: resetResult.max_count,
-            completed_at: null,
-            updated_at: new Date().toISOString(),
-          }
-        : prev
-    )
+    const refreshedData = await fetchStaffCardByCode(cardRecord.staff_code)
 
-    setMessage('スタンプをリセットしました')
-    refreshPreview()
+    setCardRecord(refreshedData)
+    setMessage('出勤数をリセットしました')
     setCopiedFixed(false)
+    refreshPreview()
   }
 
   const copyFixedCardUrl = async () => {
@@ -317,11 +346,6 @@ export default function StampClient() {
       setCopiedFixed(false)
       setMessage('固定URLのコピーに失敗しました')
     }
-  }
-
-  const logout = async () => {
-    await fetch('/api/admin-logout', { method: 'POST' })
-    window.location.href = '/admin/login'
   }
 
   const cardBoxStyle = {
@@ -370,7 +394,10 @@ export default function StampClient() {
     border: '1px solid #e6c6bb',
     background: '#fff',
     color: '#7a4b3a',
-    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   }
 
   const stampButtonStyle = {
@@ -423,6 +450,13 @@ export default function StampClient() {
     transition: 'all 0.2s ease',
   }
 
+  const placeholderStyle = {
+    fontSize: '22px',
+    color: '#9a6b5b',
+    lineHeight: 1.8,
+    margin: 0,
+  }
+
   return (
     <div
       style={{
@@ -462,7 +496,7 @@ export default function StampClient() {
                 margin: 0,
               }}
             >
-              -Bistro-Bambi
+              従業員カード管理
             </h1>
             <p
               style={{
@@ -471,57 +505,28 @@ export default function StampClient() {
                 color: '#9a6b5b',
               }}
             >
-              スタンプカード管理画面
+              従業員コードの発行、検索、氏名登録、出勤数更新をここで管理します。
             </p>
           </div>
 
           <div
             style={{
-              marginBottom: '16px',
               display: 'flex',
               gap: '12px',
               flexWrap: 'wrap',
             }}
           >
-            <a
-              href="/admin"
-              style={{
-                padding: '16px 24px',
-                fontSize: '20px',
-                fontWeight: 700,
-                borderRadius: '14px',
-                border: '1px solid #e6c6bb',
-                background: '#fff',
-                color: '#7a4b3a',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              管理メニュー
+            <a href="/admin/staff/manage" style={subButtonStyle}>
+              従業員管理
             </a>
 
-            <a
-              href="/admin/stamp/manage"
-              style={{
-                padding: '16px 24px',
-                fontSize: '20px',
-                fontWeight: 700,
-                borderRadius: '14px',
-                border: '1px solid #e6c6bb',
-                background: '#fff',
-                color: '#7a4b3a',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              スタンプ管理
+            <a href="/admin/staff" style={subButtonStyle}>
+              従業員管理へ戻る
             </a>
 
-            <button onClick={logout} style={subButtonStyle}>
-              ログアウト
-            </button>
+            <a href="/admin" style={subButtonStyle}>
+              管理メニューへ戻る
+            </a>
           </div>
         </div>
 
@@ -535,22 +540,37 @@ export default function StampClient() {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div style={cardBoxStyle}>
-              <div style={sectionTitleStyle}>① カード新規発行</div>
-              <p
+              <div style={sectionTitleStyle}>① 従業員カード新規発行</div>
+
+              <div
                 style={{
-                  fontSize: '20px',
-                  color: '#8a6457',
-                  marginTop: 0,
-                  marginBottom: '18px',
-                  lineHeight: 1.7,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
                 }}
               >
-                まずは名前未登録のカードを発行します。
-              </p>
+                <input
+                  type="text"
+                  placeholder="従業員コードを入力（例: Bambi01）"
+                  value={createStaffCode}
+                  onChange={(e) => setCreateStaffCode(normalizeStaffCode(e.target.value))}
+                  style={inputStyle}
+                />
 
-              <button onClick={createCard} style={primaryButtonStyle}>
-                カード新規発行
-              </button>
+                <input
+                  type="text"
+                  placeholder="氏名を入力（省略可）"
+                  value={createStaffName}
+                  onChange={(e) => setCreateStaffName(e.target.value)}
+                  style={inputStyle}
+                />
+
+                <div>
+                  <button onClick={createStaffCard} style={primaryButtonStyle}>
+                    従業員カード新規発行
+                  </button>
+                </div>
+              </div>
 
               {createMessage && (
                 <p
@@ -571,7 +591,7 @@ export default function StampClient() {
             </div>
 
             <div style={cardBoxStyle}>
-              <div style={sectionTitleStyle}>② カード検索</div>
+              <div style={sectionTitleStyle}>② 従業員カード検索</div>
 
               <div
                 style={{
@@ -583,15 +603,12 @@ export default function StampClient() {
               >
                 <input
                   type="text"
-                  inputMode="numeric"
-                  placeholder="番号を入力"
-                  value={userId}
-                  onChange={(e) =>
-                    setUserId(normalizeToHalfWidthNumber(e.target.value))
-                  }
+                  placeholder="従業員コードを入力"
+                  value={staffCode}
+                  onChange={(e) => setStaffCode(normalizeStaffCode(e.target.value))}
                   style={inputStyle}
                 />
-                <button onClick={searchUser} style={primaryButtonStyle}>
+                <button onClick={searchStaffCard} style={primaryButtonStyle}>
                   検索
                 </button>
               </div>
@@ -670,7 +687,7 @@ export default function StampClient() {
                 </div>
 
                 <div style={cardBoxStyle}>
-                  <div style={sectionTitleStyle}>④ スタンプ更新</div>
+                  <div style={sectionTitleStyle}>④ 出勤数更新</div>
                   <p
                     style={{
                       fontSize: '20px',
@@ -679,17 +696,17 @@ export default function StampClient() {
                       marginBottom: '18px',
                     }}
                   >
-                    来店時にスタンプ数を調整します。
+                    出勤ごとに出勤数を調整します。
                   </p>
 
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <button onClick={() => updateStampCount(-1)} style={stampButtonStyle}>
+                    <button onClick={() => updateAttendanceCount(-1)} style={stampButtonStyle}>
                       -1
                     </button>
-                    <button onClick={() => updateStampCount(1)} style={stampButtonStyle}>
+                    <button onClick={() => updateAttendanceCount(1)} style={stampButtonStyle}>
                       +1
                     </button>
-                    <button onClick={resetStampCard} style={dangerButtonStyle}>
+                    <button onClick={resetStaffCard} style={dangerButtonStyle}>
                       リセット
                     </button>
                   </div>
@@ -700,10 +717,13 @@ export default function StampClient() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div style={cardBoxStyle}>
-              <div style={sectionTitleStyle}>カード情報</div>
+              <div style={sectionTitleStyle}>従業員カード情報</div>
 
               {cardRecord ? (
                 <>
+                  <p style={infoRowStyle}>
+                    <strong>従業員コード：</strong> {cardRecord.staff_code}
+                  </p>
                   <p style={infoRowStyle}>
                     <strong>番号：</strong> {cardRecord.user_id}
                   </p>
@@ -714,10 +734,10 @@ export default function StampClient() {
                     <strong>氏名：</strong> {cardRecord.display_name || '未登録'}
                   </p>
                   <p style={infoRowStyle}>
-                    <strong>現在のスタンプ数：</strong> {cardRecord.current_count}
+                    <strong>現在の出勤数：</strong> {cardRecord.current_count}
                   </p>
                   <p style={infoRowStyle}>
-                    <strong>最大スタンプ数：</strong> {cardRecord.max_count}
+                    <strong>最大出勤数：</strong> {cardRecord.max_count}
                   </p>
 
                   <div style={{ marginTop: '18px' }}>
@@ -762,38 +782,20 @@ export default function StampClient() {
                         marginBottom: 0,
                       }}
                     >
-                      コピー機や実運用で使う固定URLです。
+                      従業員カードの固定URLです。
                     </p>
                   </div>
                 </>
               ) : (
-                <p
-                  style={{
-                    fontSize: '22px',
-                    color: '#9a6b5b',
-                    margin: 0,
-                    lineHeight: 1.8,
-                  }}
-                >
-                  カードを検索すると、ここに情報が表示されます。
+                <p style={placeholderStyle}>
+                  従業員カードを検索すると、ここに従業員コード、氏名、現在の出勤数、
+                  最大出勤数などが表示されます。
                 </p>
               )}
             </div>
 
             <div style={cardBoxStyle}>
-              <div style={sectionTitleStyle}>カード画像プレビュー</div>
-
-              <p
-                style={{
-                  fontSize: '20px',
-                  color: '#8a6457',
-                  marginTop: 0,
-                  marginBottom: '18px',
-                  lineHeight: 1.7,
-                }}
-              >
-                氏名保存やスタンプ更新後は自動で反映されます。
-              </p>
+              <div style={sectionTitleStyle}>従業員カード画像プレビュー</div>
 
               {cardRecord ? (
                 <>
@@ -808,7 +810,7 @@ export default function StampClient() {
                   >
                     <img
                       src={getPreviewUrl(cardRecord)}
-                      alt={`カード ${cardRecord.user_id}`}
+                      alt={`従業員カード ${cardRecord.staff_code}`}
                       style={{
                         width: '100%',
                         maxWidth: '100%',
@@ -836,15 +838,8 @@ export default function StampClient() {
                     textAlign: 'center',
                   }}
                 >
-                  <p
-                    style={{
-                      fontSize: '24px',
-                      color: '#9a6b5b',
-                      margin: 0,
-                      lineHeight: 1.8,
-                    }}
-                  >
-                    カード検索後に、ここへ大きくプレビュー表示されます。
+                  <p style={placeholderStyle}>
+                    従業員カード検索後に、ここへ大きくプレビュー表示されます。
                   </p>
                 </div>
               )}

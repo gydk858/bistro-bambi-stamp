@@ -8,8 +8,13 @@ export const revalidate = 0;
 const LIVE_CARD_BASE =
   "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live";
 
+const LIVE_STAFF_CARD_BASE =
+  "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live-staff";
+
 const STAMP_PROGRAM_CODE = "stamp_regular";
+const STAFF_PROGRAM_CODE = "stamp_staff_attendance";
 const DEFAULT_MAX_COUNT = 12;
+const DEFAULT_STAFF_MAX_COUNT = 15;
 
 function getOptionValue(options, name) {
   if (!Array.isArray(options)) return undefined;
@@ -20,8 +25,17 @@ function getFixedCardUrl(userId) {
   return `${LIVE_CARD_BASE}/${userId}.png`;
 }
 
+function getFixedStaffCardUrl(userId) {
+  return `${LIVE_STAFF_CARD_BASE}/${userId}.png`;
+}
+
 function getPreviewImageUrl(card) {
   const fixedUrl = getFixedCardUrl(card.user_id);
+  return `${fixedUrl}?preview=${Date.now()}`;
+}
+
+function getStaffPreviewImageUrl(card) {
+  const fixedUrl = getFixedStaffCardUrl(card.user_id);
   return `${fixedUrl}?preview=${Date.now()}`;
 }
 
@@ -67,6 +81,40 @@ function buildMainEmbed(card, description = "") {
   };
 }
 
+function buildStaffEmbed(card, description = "") {
+  return {
+    embeds: [
+      {
+        title: "-Bistro-Bambi 従業員カード",
+        color: 0xa5bb73,
+        description,
+        fields: [
+          {
+            name: "従業員コード",
+            value: String(card.staff_code ?? "未設定"),
+            inline: true,
+          },
+          {
+            name: "氏名",
+            value: card.display_name ?? "未登録",
+            inline: true,
+          },
+          {
+            name: "現在の出勤数",
+            value: `${String(card.current_count ?? 0)} / ${String(
+              card.max_count ?? DEFAULT_STAFF_MAX_COUNT
+            )}`,
+            inline: true,
+          },
+        ],
+        image: {
+          url: getStaffPreviewImageUrl(card),
+        },
+      },
+    ],
+  };
+}
+
 function buildPanelPayload(card, description = "操作パネルです。") {
   return {
     ...buildMainEmbed(card, description),
@@ -97,6 +145,37 @@ function buildPanelPayload(card, description = "操作パネルです。") {
             style: 2,
             label: "ID検索",
             custom_id: `stamp:search:${card.user_id}`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildStaffPanelPayload(card, description = "操作パネルです。") {
+  return {
+    ...buildStaffEmbed(card, description),
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: "+1",
+            custom_id: `staff:add:${card.user_id}`,
+          },
+          {
+            type: 2,
+            style: 4,
+            label: "-1",
+            custom_id: `staff:remove:${card.user_id}`,
+          },
+          {
+            type: 2,
+            style: 2,
+            label: "従業員検索",
+            custom_id: `staff:search:${card.user_id}`,
           },
         ],
       },
@@ -214,6 +293,48 @@ async function getStampCardOrThrow(supabase, userId) {
   return card;
 }
 
+async function getStaffCardByUserIdOrThrow(supabase, userId) {
+  const { data: card, error } = await supabase
+    .from("v_staff_stamp_cards_current")
+    .select("*")
+    .eq("user_id", Number(userId))
+    .eq("program_code", STAFF_PROGRAM_CODE)
+    .eq("card_status", "active")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error("従業員カード情報の取得に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  if (!card) {
+    throw new Error("従業員カードが見つかりません。従業員コードを確認してください。");
+  }
+
+  return card;
+}
+
+async function getStaffCardByCodeOrThrow(supabase, staffCode) {
+  const normalizedCode = String(staffCode ?? "").trim();
+
+  const { data: card, error } = await supabase
+    .from("v_staff_stamp_cards_current")
+    .select("*")
+    .eq("staff_code", normalizedCode)
+    .eq("program_code", STAFF_PROGRAM_CODE)
+    .eq("card_status", "active")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error("従業員カード情報の取得に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  if (!card) {
+    throw new Error("従業員カードが見つかりません。従業員コードを確認してください。");
+  }
+
+  return card;
+}
+
 async function syncCard(req, userId) {
   const origin = new URL(req.url).origin;
   const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
@@ -223,6 +344,18 @@ async function syncCard(req, userId) {
 
   if (!syncRes.ok || !syncJson.ok) {
     throw new Error("カード画像の更新に失敗しました。時間をおいてもう一度お試しください。");
+  }
+}
+
+async function syncStaffCard(req, userId) {
+  const origin = new URL(req.url).origin;
+  const syncRes = await fetch(`${origin}/api/sync-staff-card/${userId}`, {
+    method: "POST",
+  });
+  const syncJson = await syncRes.json();
+
+  if (!syncRes.ok || !syncJson.ok) {
+    throw new Error("従業員カード画像の更新に失敗しました。時間をおいてもう一度お試しください。");
   }
 }
 
@@ -280,25 +413,36 @@ async function processStampAction({ req, userId, action, name, actedBy }) {
   return await getStampCardOrThrow(supabase, userId);
 }
 
-async function processNameUpdate({ req, userId, name }) {
+async function processStaffAction({ req, userId, action, actedBy }) {
   const supabase = createSupabaseClient();
-  const trimmedName = typeof name === "string" ? name.trim() : "";
+  const card = await getStaffCardByUserIdOrThrow(supabase, userId);
 
-  const { error } = await supabase
-    .from("users")
-    .update({
-      display_name: trimmedName === "" ? "未登録" : trimmedName,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", userId);
-
-  if (error) {
-    throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
+  if (!["add", "remove"].includes(action)) {
+    throw new Error("操作内容が正しくありません。もう一度お試しください。");
   }
 
-  await syncCard(req, userId);
+  const diff = action === "add" ? 1 : -1;
 
-  return await getStampCardOrThrow(supabase, userId);
+  const { data: rpcResult, error: rpcError } = await supabase.rpc(
+    "increment_stamp_card",
+    {
+      p_card_id: card.card_id,
+      p_amount: diff,
+      p_acted_by: actedBy ?? "discord_staff_bot",
+      p_reason:
+        action === "add"
+          ? "Discord bot から出勤数追加"
+          : "Discord bot から出勤数減算",
+    }
+  );
+
+  if (rpcError || !rpcResult || rpcResult.length === 0) {
+    throw new Error("出勤数の更新に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  await syncStaffCard(req, userId);
+
+  return await getStaffCardByUserIdOrThrow(supabase, userId);
 }
 
 async function createCard({ req, name, actedBy }) {
@@ -338,6 +482,77 @@ async function createCard({ req, name, actedBy }) {
   await syncCard(req, newUser.user_id);
 
   return await getStampCardOrThrow(supabase, newUser.user_id);
+}
+
+async function createStaffCard({ req, staffCode, name, actedBy }) {
+  const supabase = createSupabaseClient();
+  const normalizedCode = String(staffCode ?? "").trim();
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+  const displayName = trimmedName === "" ? "未登録" : trimmedName;
+  const now = new Date().toISOString();
+
+  if (!normalizedCode) {
+    throw new Error("従業員コードを確認してください。");
+  }
+
+  const { data: existingProfile, error: existingProfileError } = await supabase
+    .from("employee_profiles")
+    .select("employee_id")
+    .eq("staff_code", normalizedCode)
+    .maybeSingle();
+
+  if (existingProfileError) {
+    throw new Error("従業員コードの確認に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  if (existingProfile) {
+    throw new Error("その従業員コードはすでに使用されています。");
+  }
+
+  const { data: newUser, error: createUserError } = await supabase
+    .from("users")
+    .insert({
+      display_name: displayName,
+      status: "active",
+      updated_at: now,
+    })
+    .select("user_id")
+    .maybeSingle();
+
+  if (createUserError || !newUser) {
+    throw new Error("従業員ユーザーの作成に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  const { error: createProfileError } = await supabase
+    .from("employee_profiles")
+    .insert({
+      user_id: newUser.user_id,
+      staff_code: normalizedCode,
+      employee_name: trimmedName === "" ? null : trimmedName,
+      employment_status: "active",
+    });
+
+  if (createProfileError) {
+    throw new Error("従業員プロフィールの作成に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  const { data: createdCardRows, error: createCardError } = await supabase.rpc(
+    "create_stamp_card_for_user",
+    {
+      p_user_id: newUser.user_id,
+      p_program_code: STAFF_PROGRAM_CODE,
+      p_max_count: DEFAULT_STAFF_MAX_COUNT,
+      p_note: `Discord bot から従業員カード新規発行 (${actedBy ?? "discord_staff_bot"})`,
+    }
+  );
+
+  if (createCardError || !createdCardRows || createdCardRows.length === 0) {
+    throw new Error("従業員カード本体の作成に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  await syncStaffCard(req, newUser.user_id);
+
+  return await getStaffCardByCodeOrThrow(supabase, normalizedCode);
 }
 
 export async function POST(req) {
@@ -413,6 +628,33 @@ export async function POST(req) {
       });
     }
 
+    if (customId.startsWith("staff:search:")) {
+      return Response.json({
+        type: 9,
+        data: {
+          custom_id: "staff_search_modal",
+          title: "従業員検索",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 4,
+                  custom_id: "staff_code_input",
+                  label: "検索したい従業員コード",
+                  style: 1,
+                  min_length: 1,
+                  max_length: 20,
+                  required: true,
+                  placeholder: "例: Bambi01",
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
@@ -424,32 +666,70 @@ export async function POST(req) {
       const [prefix, action, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
 
-      if (prefix !== "stamp" || !Number.isFinite(userId)) {
-        await editOriginalResponse(applicationId, interactionToken, {
-          content: "操作内容を読み取れませんでした。もう一度お試しください。",
-          components: [],
+      if (prefix === "stamp") {
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "操作内容を読み取れませんでした。もう一度お試しください。",
+            components: [],
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const updatedCard = await processStampAction({
+          req,
+          userId,
+          action,
+          actedBy: operatorName,
         });
+
+        const actionMessage =
+          action === "add"
+            ? `${operatorName} さんがスタンプを追加しました。`
+            : `${operatorName} さんがスタンプを減らしました。`;
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildPanelPayload(updatedCard, actionMessage)
+        );
+
         return new Response(null, { status: 202 });
       }
 
-      const updatedCard = await processStampAction({
-        req,
-        userId,
-        action,
-        actedBy: operatorName,
+      if (prefix === "staff") {
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "操作内容を読み取れませんでした。もう一度お試しください。",
+            components: [],
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const updatedCard = await processStaffAction({
+          req,
+          userId,
+          action,
+          actedBy: operatorName,
+        });
+
+        const actionMessage =
+          action === "add"
+            ? `${operatorName} さんが出勤数を追加しました。`
+            : `${operatorName} さんが出勤数を減らしました。`;
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildStaffPanelPayload(updatedCard, actionMessage)
+        );
+
+        return new Response(null, { status: 202 });
+      }
+
+      await editOriginalResponse(applicationId, interactionToken, {
+        content: "操作内容を読み取れませんでした。もう一度お試しください。",
+        components: [],
       });
-
-      const actionMessage =
-        action === "add"
-          ? `${operatorName} さんがスタンプを追加しました。`
-          : `${operatorName} さんがスタンプを減らしました。`;
-
-      await editOriginalResponse(
-        applicationId,
-        interactionToken,
-        buildPanelPayload(updatedCard, actionMessage)
-      );
-
       return new Response(null, { status: 202 });
     } catch (error) {
       try {
@@ -498,6 +778,31 @@ export async function POST(req) {
           applicationId,
           interactionToken,
           buildPanelPayload(card, "カード情報を表示しました。")
+        );
+
+        return new Response(null, { status: 202 });
+      }
+
+      if (customId === "staff_search_modal") {
+        const rows = body.data?.components ?? [];
+        const firstInput = rows?.[0]?.components?.[0];
+        const rawStaffCode = firstInput?.value ?? "";
+        const staffCode = String(rawStaffCode).trim();
+
+        if (!staffCode) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "従業員コードを確認してください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const supabase = createSupabaseClient();
+        const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildStaffPanelPayload(card, "従業員カードを表示しました。")
         );
 
         return new Response(null, { status: 202 });
@@ -645,6 +950,102 @@ export async function POST(req) {
       return new Response(null, { status: 202 });
     }
 
+    if (commandName === "staff") {
+      const options = body.data?.options ?? [];
+      const staffCode = String(getOptionValue(options, "code") ?? "").trim();
+      const action = getOptionValue(options, "action");
+
+      if (!staffCode) {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content: "従業員コードを確認してください。",
+        });
+        return new Response(null, { status: 202 });
+      }
+
+      if (!["add", "remove"].includes(action)) {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content: "操作内容を確認してください。",
+        });
+        return new Response(null, { status: 202 });
+      }
+
+      const supabase = createSupabaseClient();
+      const targetCard = await getStaffCardByCodeOrThrow(supabase, staffCode);
+
+      const result = await processStaffAction({
+        req,
+        userId: targetCard.user_id,
+        action,
+        actedBy: operatorName,
+      });
+
+      const actionMessage =
+        action === "add"
+          ? `${operatorName} さんが出勤数を追加しました。`
+          : `${operatorName} さんが出勤数を減らしました。`;
+
+      await editOriginalResponse(applicationId, interactionToken, {
+        content: actionMessage,
+        ...buildStaffEmbed(result, actionMessage),
+      });
+
+      return new Response(null, { status: 202 });
+    }
+
+    if (commandName === "staffpanel") {
+      const options = body.data?.options ?? [];
+      const staffCode = String(getOptionValue(options, "code") ?? "").trim();
+
+      if (!staffCode) {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content: "従業員コードを確認してください。",
+        });
+        return new Response(null, { status: 202 });
+      }
+
+      const supabase = createSupabaseClient();
+      const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
+
+      await editOriginalResponse(
+        applicationId,
+        interactionToken,
+        buildStaffPanelPayload(card, "操作パネルを表示しました。")
+      );
+
+      return new Response(null, { status: 202 });
+    }
+
+    if (commandName === "staffcreate") {
+      const options = body.data?.options ?? [];
+      const staffCode = String(getOptionValue(options, "code") ?? "").trim();
+      const name = getOptionValue(options, "name");
+
+      if (!staffCode) {
+        await editOriginalResponse(applicationId, interactionToken, {
+          content: "従業員コードを確認してください。",
+        });
+        return new Response(null, { status: 202 });
+      }
+
+      const newCard = await createStaffCard({
+        req,
+        staffCode,
+        name,
+        actedBy: operatorName,
+      });
+
+      await editOriginalResponse(
+        applicationId,
+        interactionToken,
+        buildStaffPanelPayload(
+          newCard,
+          `${operatorName} さんが新しい従業員カードを発行しました。`
+        )
+      );
+
+      return new Response(null, { status: 202 });
+    }
+
     await editOriginalResponse(applicationId, interactionToken, {
       content: "このコマンドにはまだ対応していません。",
     });
@@ -663,4 +1064,25 @@ export async function POST(req) {
 
     return new Response(null, { status: 202 });
   }
+}
+
+async function processNameUpdate({ req, userId, name }) {
+  const supabase = createSupabaseClient();
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
+  const { error } = await supabase
+    .from("users")
+    .update({
+      display_name: trimmedName === "" ? "未登録" : trimmedName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  await syncCard(req, userId);
+
+  return await getStampCardOrThrow(supabase, userId);
 }

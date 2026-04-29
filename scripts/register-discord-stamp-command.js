@@ -60,6 +60,58 @@ const commands = [
       },
     ],
   },
+  {
+    name: "staff",
+    description: "従業員カードの出勤数を更新します",
+    options: [
+      {
+        type: 3,
+        name: "code",
+        description: "従業員コード（例: Bambi01）",
+        required: true,
+      },
+      {
+        type: 3,
+        name: "action",
+        description: "add か remove",
+        required: true,
+        choices: [
+          { name: "add", value: "add" },
+          { name: "remove", value: "remove" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "staffpanel",
+    description: "従業員カード操作パネルを表示します",
+    options: [
+      {
+        type: 3,
+        name: "code",
+        description: "従業員コード（例: Bambi01）",
+        required: true,
+      },
+    ],
+  },
+  {
+    name: "staffcreate",
+    description: "新しい従業員カードを発行します",
+    options: [
+      {
+        type: 3,
+        name: "code",
+        description: "従業員コード（例: Bambi01）",
+        required: true,
+      },
+      {
+        type: 3,
+        name: "name",
+        description: "作成と同時に氏名を登録する場合のみ入力",
+        required: false,
+      },
+    ],
+  },
 ];
 
 async function main() {
@@ -80,7 +132,7 @@ async function main() {
 
   if (!res.ok) {
     console.error(json);
-    throw new Error("スタンプコマンド登録に失敗しました。");
+    throw new Error("スタンプ / 従業員カード コマンド登録に失敗しました。");
   }
 
   console.log(
