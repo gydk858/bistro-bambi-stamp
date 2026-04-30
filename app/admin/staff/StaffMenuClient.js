@@ -1,6 +1,13 @@
 'use client'
 
+import Link from 'next/link'
+
 export default function StaffMenuClient() {
+  const logout = async () => {
+    await fetch('/api/admin-logout', { method: 'POST' })
+    window.location.href = '/admin/login'
+  }
+
   const cardBoxStyle = {
     background: '#fffaf8',
     border: '1px solid #f0d9d2',
@@ -16,22 +23,7 @@ export default function StaffMenuClient() {
     marginBottom: '14px',
   }
 
-  const linkButtonStyle = {
-    padding: '16px 24px',
-    fontSize: '20px',
-    fontWeight: 700,
-    borderRadius: '14px',
-    border: 'none',
-    background: '#d98b7b',
-    color: '#fff',
-    textDecoration: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
-  }
-
-  const subLinkButtonStyle = {
+  const subButtonStyle = {
     padding: '16px 24px',
     fontSize: '20px',
     fontWeight: 700,
@@ -39,10 +31,52 @@ export default function StaffMenuClient() {
     border: '1px solid #e6c6bb',
     background: '#fff',
     color: '#7a4b3a',
+    cursor: 'pointer',
     textDecoration: 'none',
     display: 'inline-flex',
     alignItems: 'center',
+  }
+
+  const menuCardStyle = {
+    ...cardBoxStyle,
+    display: 'block',
+    textDecoration: 'none',
+    color: '#5f4137',
+    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+  }
+
+  const menuDescriptionStyle = {
+    fontSize: '20px',
+    color: '#8a6457',
+    marginTop: 0,
+    marginBottom: 0,
+    lineHeight: 1.7,
+  }
+
+  const iconStyle = {
+    width: '64px',
+    height: '64px',
+    borderRadius: '18px',
+    background: '#fff1e9',
+    display: 'flex',
+    alignItems: 'center',
     justifyContent: 'center',
+    fontSize: '32px',
+    marginBottom: '18px',
+    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.14)',
+  }
+
+  const cardButtonStyle = {
+    marginTop: '24px',
+    padding: '14px 18px',
+    fontSize: '20px',
+    fontWeight: 700,
+    borderRadius: '14px',
+    border: '1px solid #e6c6bb',
+    background: '#fff',
+    color: '#7a4b3a',
+    display: 'inline-flex',
+    alignItems: 'center',
   }
 
   return (
@@ -84,7 +118,7 @@ export default function StaffMenuClient() {
                 margin: 0,
               }}
             >
-              従業員管理
+              -Bistro-Bambi
             </h1>
             <p
               style={{
@@ -93,75 +127,117 @@ export default function StaffMenuClient() {
                 color: '#9a6b5b',
               }}
             >
-              従業員カード管理や、今後追加する給与管理はこちらから進みます。
+              従業員管理画面
             </p>
           </div>
 
           <div
             style={{
+              marginBottom: '16px',
               display: 'flex',
               gap: '12px',
               flexWrap: 'wrap',
             }}
           >
-            <a href="/admin" style={subLinkButtonStyle}>
-              管理メニューへ戻る
-            </a>
+            <Link href="/admin" style={subButtonStyle}>
+              管理メニュー
+            </Link>
+
+            <button onClick={logout} style={subButtonStyle}>
+              ログアウト
+            </button>
           </div>
         </div>
 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
             gap: '28px',
-            alignItems: 'start',
+            alignItems: 'stretch',
           }}
         >
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>① 従業員カード管理</div>
-            <p
-              style={{
-                fontSize: '20px',
-                color: '#8a6457',
-                marginTop: 0,
-                marginBottom: '18px',
-                lineHeight: 1.7,
-              }}
-            >
-              従業員コードの発行、検索、氏名登録、出勤数更新を行います。
-              月末の一括リセットなどの運用処理は、この先の従業員カード管理画面から進めます。
+          <Link href="/admin/staff/card" style={menuCardStyle}>
+            <div style={iconStyle}>📇</div>
+
+            <div style={sectionTitleStyle}>従業員カード管理</div>
+
+            <p style={menuDescriptionStyle}>
+              従業員カードの新規発行、従業員コード検索、氏名登録、出勤数の更新を行います。
+              月末一括リセットもこの画面から行います。
             </p>
 
-            <a href="/admin/staff/card" style={linkButtonStyle}>
-              従業員カード管理を開く
-            </a>
-          </div>
-
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>② 給与管理</div>
-            <p
-              style={{
-                fontSize: '20px',
-                color: '#8a6457',
-                marginTop: 0,
-                marginBottom: '18px',
-                lineHeight: 1.7,
-              }}
-            >
-              将来的に、従業員カードの出勤数を参照して給与計算や確認に使う予定です。
-            </p>
-
-            <div
-              style={{
-                ...subLinkButtonStyle,
-                cursor: 'default',
-                opacity: 0.8,
-              }}
-            >
-              準備中
+            <div style={cardButtonStyle}>
+              従業員カード管理へ
             </div>
-          </div>
+          </Link>
+
+          <Link href="/admin/staff/payroll" style={menuCardStyle}>
+            <div style={iconStyle}>💰</div>
+
+            <div style={sectionTitleStyle}>給与管理</div>
+
+            <p style={menuDescriptionStyle}>
+              出勤履歴と締め日時点スタンプ数をもとに、給与期間の作成、給与プレビュー、金庫・牧場利益の入力を行います。
+            </p>
+
+            <div style={cardButtonStyle}>
+              給与管理へ
+            </div>
+          </Link>
+
+          <Link href="/admin/staff/payroll/monthly" style={menuCardStyle}>
+            <div style={iconStyle}>📊</div>
+
+            <div style={sectionTitleStyle}>月次給与一覧</div>
+
+            <p style={menuDescriptionStyle}>
+              月ごとの前半・後半給与を横並びで確認します。
+              従業員別支給額、月次集計、備考を一覧で確認できます。
+            </p>
+
+            <div style={cardButtonStyle}>
+              月次給与一覧へ
+            </div>
+          </Link>
+
+          <Link href="/admin/staff/payroll/rate-rules" style={menuCardStyle}>
+            <div style={iconStyle}>⚙️</div>
+
+            <div style={sectionTitleStyle}>単価ルール管理</div>
+
+            <p style={menuDescriptionStyle}>
+              スタンプ数に応じた給与単価ルールを作成・編集します。
+              売上や運用状況に応じて単価を変更できます。
+            </p>
+
+            <div style={cardButtonStyle}>
+              単価ルール管理へ
+            </div>
+          </Link>
+        </div>
+
+        <div
+          style={{
+            ...cardBoxStyle,
+            marginTop: '28px',
+          }}
+        >
+          <div style={sectionTitleStyle}>運用メモ</div>
+
+          <p
+            style={{
+              fontSize: '20px',
+              color: '#8a6457',
+              marginTop: 0,
+              marginBottom: 0,
+              lineHeight: 1.7,
+            }}
+          >
+            従業員カードは通常スタンプカードとは別管理です。出勤数は最大15までを想定しています。
+            給与管理では、前半は1日〜15日、後半は16日〜月末を対象に集計します。
+            1日の区切りはAM4:00基準です。
+          </p>
         </div>
       </div>
     </div>

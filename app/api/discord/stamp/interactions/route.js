@@ -47,6 +47,42 @@ function getOperatorName(body) {
   return nick || globalName || username || "担当者";
 }
 
+function getJstWorkDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const values = {};
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+
+  const year = Number(values.year);
+  const month = Number(values.month);
+  const day = Number(values.day);
+  const hour = Number(values.hour);
+
+  let workDateUtc = Date.UTC(year, month - 1, day);
+
+  if (hour < 4) {
+    workDateUtc -= 24 * 60 * 60 * 1000;
+  }
+
+  const workDate = new Date(workDateUtc);
+  const yyyy = workDate.getUTCFullYear();
+  const mm = String(workDate.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(workDate.getUTCDate()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function buildMainEmbed(card, description = "") {
   return {
     embeds: [
@@ -372,6 +408,38 @@ async function updateDisplayNameIfNeeded(supabase, userId, name) {
   }
 }
 
+async function recordStaffAttendanceEvent({
+  supabase,
+  userId,
+  action,
+  actedBy,
+}) {
+  if (!["add", "remove"].includes(action)) {
+    throw new Error("出勤履歴の操作内容が正しくありません。");
+  }
+
+  const amount = action === "add" ? 1 : -1;
+  const eventType = action === "add" ? "work" : "adjust_minus";
+  const workDate = getJstWorkDateString();
+
+  const { error } = await supabase.rpc("record_staff_attendance_event", {
+    p_user_id: Number(userId),
+    p_work_date: workDate,
+    p_amount: amount,
+    p_event_type: eventType,
+    p_source: "discord",
+    p_note:
+      action === "add"
+        ? "Discord から出勤数追加"
+        : "Discord から出勤数減算",
+    p_acted_by: actedBy ?? "discord_staff_bot",
+  });
+
+  if (error) {
+    throw new Error(`出勤履歴の保存に失敗しました: ${error.message}`);
+  }
+}
+
 async function processStampAction({ req, userId, action, name, actedBy }) {
   const supabase = createSupabaseClient();
   const card = await getStampCardOrThrow(supabase, userId);
@@ -434,6 +502,13 @@ async function processStaffAction({ req, userId, action, actedBy }) {
   if (rpcError || !rpcResult || rpcResult.length === 0) {
     throw new Error("出勤数の更新に失敗しました。時間をおいてもう一度お試しください。");
   }
+
+  await recordStaffAttendanceEvent({
+    supabase,
+    userId,
+    action,
+    actedBy,
+  });
 
   await syncStaffCard(req, userId);
 

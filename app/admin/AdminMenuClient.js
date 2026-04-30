@@ -66,6 +66,13 @@ export default function AdminMenuClient() {
     width: 'fit-content',
   }
 
+  const buttonGroupStyle = {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginTop: '28px',
+  }
+
   return (
     <div
       style={{
@@ -142,12 +149,59 @@ export default function AdminMenuClient() {
             <div>
               <h2 style={sectionTitleStyle}>従業員管理</h2>
               <p style={descriptionStyle}>
-                従業員カード管理や、今後追加する給与管理はこちらから進みます。
+                従業員カード管理、出勤数更新、月末リセットはこちらから進みます。
               </p>
             </div>
 
             <a href="/admin/staff" style={primaryButtonStyle}>
               従業員管理を開く
+            </a>
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: '38px',
+            background: '#fffaf8',
+            border: '1px solid #f0d9d2',
+            borderRadius: '20px',
+            padding: '32px 36px',
+            boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '34px',
+              fontWeight: 900,
+              color: '#7a4b3a',
+              margin: 0,
+            }}
+          >
+            給与管理
+          </h2>
+
+          <p
+            style={{
+              fontSize: '22px',
+              color: '#8a6457',
+              lineHeight: 1.8,
+              margin: '18px 0 0 0',
+            }}
+          >
+            従業員カードの出勤履歴をもとに、給与プレビュー、金庫・牧場利益、月次一覧、単価ルールを管理します。
+          </p>
+
+          <div style={buttonGroupStyle}>
+            <a href="/admin/staff/payroll" style={primaryButtonStyle}>
+              給与管理を開く
+            </a>
+
+            <a href="/admin/staff/payroll/monthly" style={subButtonStyle}>
+              月次給与一覧
+            </a>
+
+            <a href="/admin/staff/payroll/rate-rules" style={subButtonStyle}>
+              単価ルール管理
             </a>
           </div>
         </div>

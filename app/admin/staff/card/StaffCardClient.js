@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const STAFF_PROGRAM_CODE = 'stamp_staff_attendance'
@@ -21,6 +21,10 @@ export default function StaffCardClient() {
   const [copiedFixed, setCopiedFixed] = useState(false)
   const [previewKey, setPreviewKey] = useState(Date.now())
 
+  const [currentStore, setCurrentStore] = useState(null)
+  const [storeError, setStoreError] = useState('')
+  const [isStoreLoading, setIsStoreLoading] = useState(true)
+
   const normalizeStaffCode = (value) => {
     return value.replace(/\s+/g, '').trim()
   }
@@ -37,6 +41,41 @@ export default function StaffCardClient() {
     if (!targetRecord) return ''
     const fixedUrl = getFixedCardUrl(targetRecord.user_id)
     return `${fixedUrl}?preview=${previewKey}`
+  }
+
+  const getJstBusinessDateForPayroll = () => {
+    const now = new Date()
+
+    const jstFormatter = new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+
+    const parts = jstFormatter.formatToParts(now)
+    const getPart = (type) => parts.find((part) => part.type === type)?.value
+
+    const year = Number(getPart('year'))
+    const month = Number(getPart('month'))
+    const day = Number(getPart('day'))
+    const hour = Number(getPart('hour'))
+
+    const jstDate = new Date(Date.UTC(year, month - 1, day))
+
+    if (hour < 4) {
+      jstDate.setUTCDate(jstDate.getUTCDate() - 1)
+    }
+
+    const businessYear = jstDate.getUTCFullYear()
+    const businessMonth = String(jstDate.getUTCMonth() + 1).padStart(2, '0')
+    const businessDay = String(jstDate.getUTCDate()).padStart(2, '0')
+
+    return `${businessYear}-${businessMonth}-${businessDay}`
   }
 
   const syncStaffCardImage = async (targetUserId) => {
@@ -56,13 +95,86 @@ export default function StaffCardClient() {
     return syncJson
   }
 
+  const loadCurrentStore = async () => {
+    setIsStoreLoading(true)
+    setStoreError('')
+
+    try {
+      const { data: setting, error: settingError } = await supabase
+        .from('app_settings')
+        .select('setting_key, setting_value')
+        .eq('setting_key', 'current_store_code')
+        .maybeSingle()
+
+      if (settingError) {
+        throw new Error(`店舗設定の取得に失敗しました: ${settingError.message}`)
+      }
+
+      if (!setting?.setting_value) {
+        throw new Error('current_store_code が設定されていません')
+      }
+
+      const { data: store, error: storeErrorRes } = await supabase
+        .from('stores')
+        .select('store_id, store_code, store_name, status')
+        .eq('store_code', setting.setting_value)
+        .eq('status', 'active')
+        .maybeSingle()
+
+      if (storeErrorRes) {
+        throw new Error(`店舗情報の取得に失敗しました: ${storeErrorRes.message}`)
+      }
+
+      if (!store) {
+        throw new Error('現在の店舗設定に対応する店舗が見つかりません')
+      }
+
+      setCurrentStore(store)
+    } catch (error) {
+      setCurrentStore(null)
+      setStoreError(
+        error instanceof Error ? error.message : '店舗設定の読み込みに失敗しました'
+      )
+    } finally {
+      setIsStoreLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadCurrentStore()
+  }, [])
+
+  const requireCurrentStore = () => {
+    if (!currentStore?.store_id || !currentStore?.store_code) {
+      throw new Error(storeError || '現在の店舗設定が読み込まれていません')
+    }
+
+    return currentStore
+  }
+
   const fetchStaffCardByCode = async (targetStaffCode) => {
     const normalized = normalizeStaffCode(targetStaffCode)
+    const store = requireCurrentStore()
+
+    const { data: profile, error: profileError } = await supabase
+      .from('employee_profiles')
+      .select('user_id, staff_code, employee_name, store_id')
+      .eq('store_id', store.store_id)
+      .eq('staff_code', normalized)
+      .maybeSingle()
+
+    if (profileError) {
+      throw new Error('従業員プロフィールの取得に失敗しました')
+    }
+
+    if (!profile) {
+      throw new Error('この従業員カードは見つかりません')
+    }
 
     const { data, error } = await supabase
       .from('v_staff_stamp_cards_current')
       .select('*')
-      .eq('staff_code', normalized)
+      .eq('user_id', profile.user_id)
       .eq('program_code', STAFF_PROGRAM_CODE)
       .eq('card_status', 'active')
       .maybeSingle()
@@ -73,6 +185,33 @@ export default function StaffCardClient() {
 
     if (!data) {
       throw new Error('この従業員カードは見つかりません')
+    }
+
+    return data
+  }
+
+  const recordAttendanceEvent = async ({
+    userId,
+    amount,
+    eventType,
+    source,
+    note,
+    actedBy,
+  }) => {
+    const workDate = getJstBusinessDateForPayroll()
+
+    const { data, error } = await supabase.rpc('record_staff_attendance_event', {
+      p_user_id: userId,
+      p_work_date: workDate,
+      p_amount: amount,
+      p_event_type: eventType,
+      p_source: source,
+      p_note: note,
+      p_acted_by: actedBy,
+    })
+
+    if (error) {
+      throw new Error(`出勤履歴の保存に失敗しました: ${error.message}`)
     }
 
     return data
@@ -99,7 +238,7 @@ export default function StaffCardClient() {
 
       setCardRecord(refreshedData)
       setEditName(refreshedData.display_name || '')
-      setMessage('従業員カードを表示しました')
+      setMessage(`従業員カードを表示しました（${currentStore?.store_name ?? ''}）`)
       refreshPreview()
     } catch (error) {
       setCardRecord(null)
@@ -125,75 +264,40 @@ export default function StaffCardClient() {
     }
 
     try {
-      const { data: existingProfile, error: existingProfileError } = await supabase
-        .from('employee_profiles')
-        .select('employee_id')
-        .eq('staff_code', normalizedCode)
-        .maybeSingle()
+      const store = requireCurrentStore()
 
-      if (existingProfileError) {
-        throw new Error(`従業員コードの確認に失敗しました: ${existingProfileError.message}`)
-      }
-
-      if (existingProfile) {
-        throw new Error('その従業員コードはすでに使用されています')
-      }
-
-      const now = new Date().toISOString()
-      const displayName = trimmedName === '' ? '未登録' : trimmedName
-
-      const { data: createdUser, error: createUserError } = await supabase
-        .from('users')
-        .insert({
-          display_name: displayName,
-          status: 'active',
-          updated_at: now,
-        })
-        .select('user_id, display_name')
-        .maybeSingle()
-
-      if (createUserError || !createdUser) {
-        throw new Error('従業員ユーザーの作成に失敗しました')
-      }
-
-      const { error: createProfileError } = await supabase
-        .from('employee_profiles')
-        .insert({
-          user_id: createdUser.user_id,
-          staff_code: normalizedCode,
-          employee_name: trimmedName === '' ? null : trimmedName,
-          employment_status: 'active',
-        })
-
-      if (createProfileError) {
-        throw new Error(
-          `従業員プロフィールの作成に失敗しました: ${createProfileError.message}`
-        )
-      }
-
-      const { data: createdCardRows, error: createCardError } = await supabase.rpc(
-        'create_stamp_card_for_user',
+      const { data: createdRows, error: createError } = await supabase.rpc(
+        'create_staff_card_for_store',
         {
-          p_user_id: createdUser.user_id,
-          p_program_code: STAFF_PROGRAM_CODE,
+          p_store_code: store.store_code,
+          p_staff_code: normalizedCode,
+          p_display_name: trimmedName === '' ? null : trimmedName,
           p_max_count: STAFF_MAX_COUNT,
-          p_note: '管理画面から従業員カード新規発行',
+          p_note: `管理画面から従業員カード新規発行 (${store.store_code})`,
         }
       )
 
-      if (createCardError) {
-        throw new Error(`従業員カード発行に失敗しました: ${createCardError.message}`)
+      if (createError) {
+        if (String(createError.message).includes('staff_code already exists in store')) {
+          throw new Error('その従業員コードはこの店舗ですでに使用されています')
+        }
+
+        throw new Error(`従業員カード発行に失敗しました: ${createError.message}`)
       }
 
-      if (!createdCardRows || createdCardRows.length === 0) {
+      if (!createdRows || createdRows.length === 0) {
         throw new Error('従業員カード発行結果を取得できませんでした')
       }
 
-      await syncStaffCardImage(createdUser.user_id)
+      const created = createdRows[0]
+
+      await syncStaffCardImage(created.user_id)
 
       const fetchedCard = await fetchStaffCardByCode(normalizedCode)
 
-      setCreateMessage(`従業員コード ${normalizedCode} を発行しました`)
+      setCreateMessage(
+        `従業員コード ${normalizedCode} を発行しました（${store.store_name}）`
+      )
       setMessage('従業員カードを新規発行しました')
       setStaffCode(normalizedCode)
       setCardRecord(fetchedCard)
@@ -282,12 +386,21 @@ export default function StaffCardClient() {
     }
 
     try {
+      await recordAttendanceEvent({
+        userId: cardRecord.user_id,
+        amount: diff,
+        eventType: diff > 0 ? 'work' : 'adjust_minus',
+        source: 'admin_staff_ui',
+        note: diff > 0 ? '管理画面から出勤数追加' : '管理画面から出勤数減算',
+        actedBy: 'admin_staff_ui',
+      })
+
       await syncStaffCardImage(cardRecord.user_id)
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : '従業員カード画像の同期に失敗しました'
+          : '出勤履歴またはカード画像の同期に失敗しました'
       )
       return
     }
@@ -315,12 +428,21 @@ export default function StaffCardClient() {
     }
 
     try {
+      await recordAttendanceEvent({
+        userId: cardRecord.user_id,
+        amount: 0,
+        eventType: 'reset_adjust',
+        source: 'admin_staff_ui',
+        note: '管理画面から従業員カードリセット',
+        actedBy: 'admin_staff_ui',
+      })
+
       await syncStaffCardImage(cardRecord.user_id)
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : '従業員カード画像の同期に失敗しました'
+          : '出勤履歴またはカード画像の同期に失敗しました'
       )
       return
     }
@@ -507,6 +629,31 @@ export default function StaffCardClient() {
             >
               従業員コードの発行、検索、氏名登録、出勤数更新をここで管理します。
             </p>
+            <p
+              style={{
+                margin: '10px 0 0 0',
+                fontSize: '18px',
+                color: '#8a6457',
+              }}
+            >
+              現在の対象店舗：
+              {isStoreLoading
+                ? ' 読み込み中...'
+                : currentStore
+                ? ` ${currentStore.store_name} (${currentStore.store_code})`
+                : ' 未設定'}
+            </p>
+            {storeError && (
+              <p
+                style={{
+                  margin: '10px 0 0 0',
+                  fontSize: '16px',
+                  color: '#b04f3c',
+                }}
+              >
+                {storeError}
+              </p>
+            )}
           </div>
 
           <div
@@ -517,7 +664,7 @@ export default function StaffCardClient() {
             }}
           >
             <a href="/admin/staff/manage" style={subButtonStyle}>
-              従業員管理
+              月末一括リセット
             </a>
 
             <a href="/admin/staff" style={subButtonStyle}>
@@ -566,7 +713,11 @@ export default function StaffCardClient() {
                 />
 
                 <div>
-                  <button onClick={createStaffCard} style={primaryButtonStyle}>
+                  <button
+                    onClick={createStaffCard}
+                    style={primaryButtonStyle}
+                    disabled={isStoreLoading || !currentStore}
+                  >
                     従業員カード新規発行
                   </button>
                 </div>
@@ -608,7 +759,11 @@ export default function StaffCardClient() {
                   onChange={(e) => setStaffCode(normalizeStaffCode(e.target.value))}
                   style={inputStyle}
                 />
-                <button onClick={searchStaffCard} style={primaryButtonStyle}>
+                <button
+                  onClick={searchStaffCard}
+                  style={primaryButtonStyle}
+                  disabled={isStoreLoading || !currentStore}
+                >
                   検索
                 </button>
               </div>
@@ -696,7 +851,7 @@ export default function StaffCardClient() {
                       marginBottom: '18px',
                     }}
                   >
-                    出勤ごとに出勤数を調整します。
+                    出勤ごとに出勤数を調整します。給与集計用の出勤履歴はAM4:00基準の日付で保存されます。
                   </p>
 
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
@@ -721,6 +876,9 @@ export default function StaffCardClient() {
 
               {cardRecord ? (
                 <>
+                  <p style={infoRowStyle}>
+                    <strong>店舗：</strong> {currentStore?.store_name ?? '未設定'}
+                  </p>
                   <p style={infoRowStyle}>
                     <strong>従業員コード：</strong> {cardRecord.staff_code}
                   </p>
