@@ -86,6 +86,32 @@ export default function MonthlyPayrollClient() {
     })
   }, [runItems, firstPeriod, secondPeriod])
 
+  const monthlyTotals = useMemo(() => {
+    const firstPay = Number(firstSummary?.total_pay_amount || 0)
+    const secondPay = Number(secondSummary?.total_pay_amount || 0)
+
+    const firstTransfer = Number(firstSummary?.total_transfer_amount || 0)
+    const secondTransfer = Number(secondSummary?.total_transfer_amount || 0)
+
+    const firstAttendance = runItems
+      .filter((item) => firstPeriod && Number(item.payroll_period_id) === Number(firstPeriod.payroll_period_id))
+      .reduce((sum, item) => sum + Number(item.attendance_count || 0), 0)
+
+    const secondAttendance = runItems
+      .filter((item) => secondPeriod && Number(item.payroll_period_id) === Number(secondPeriod.payroll_period_id))
+      .reduce((sum, item) => sum + Number(item.attendance_count || 0), 0)
+
+    const firstProfit = Number(firstSummary?.total_profit_amount || 0)
+    const secondProfit = Number(secondSummary?.total_profit_amount || 0)
+
+    return {
+      totalPay: firstPay + secondPay,
+      totalTransfer: firstTransfer + secondTransfer,
+      totalAttendance: firstAttendance + secondAttendance,
+      totalProfit: firstProfit + secondProfit,
+    }
+  }, [firstSummary, secondSummary, firstPeriod, secondPeriod, runItems])
+
   useEffect(() => {
     initialize()
   }, [])
@@ -332,73 +358,12 @@ export default function MonthlyPayrollClient() {
     return formatMoney(item[key])
   }
 
-  const cardBoxStyle = {
-    background: '#fffaf8',
-    border: '1px solid #f0d9d2',
-    borderRadius: '20px',
-    padding: '24px',
-    boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
-  }
-
-  const sectionTitleStyle = {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#7a4b3a',
-    marginBottom: '14px',
-  }
-
-  const inputStyle = {
-    padding: '16px 18px',
-    fontSize: '20px',
-    borderRadius: '14px',
-    border: '1px solid #dcbeb2',
-    background: '#fff',
-    color: '#6b4235',
-    minWidth: '120px',
-    outline: 'none',
-  }
-
-  const primaryButtonStyle = {
-    padding: '16px 24px',
-    fontSize: '20px',
-    fontWeight: 700,
-    borderRadius: '14px',
-    border: 'none',
-    background: '#d98b7b',
-    color: '#fff',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
-    opacity: loading ? 0.7 : 1,
-  }
-
-  const subButtonStyle = {
-    padding: '16px 24px',
-    fontSize: '20px',
-    fontWeight: 700,
-    borderRadius: '14px',
-    border: '1px solid #e6c6bb',
-    background: '#fff',
-    color: '#7a4b3a',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    textDecoration: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    opacity: loading ? 0.7 : 1,
-  }
-
   if (initialLoading) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
-          padding: '32px',
-          color: '#5f4137',
-        }}
-      >
-        <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-          <div style={cardBoxStyle}>
-            <p style={{ fontSize: '22px', margin: 0 }}>読み込み中です...</p>
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.panel}>
+            <p style={styles.loadingText}>読み込み中です...</p>
           </div>
         </div>
       </div>
@@ -406,292 +371,239 @@ export default function MonthlyPayrollClient() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
-        padding: '32px',
-        color: '#5f4137',
-      }}
-    >
-      <div style={{ maxWidth: '1700px', margin: '0 auto' }}>
-        <div
-          style={{
-            background: '#fff6f1',
-            border: '1px solid #f2ddd5',
-            borderRadius: '28px',
-            padding: '28px 32px',
-            marginBottom: '28px',
-            boxShadow: '0 12px 30px rgba(201, 157, 145, 0.10)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '20px',
-            flexWrap: 'wrap',
-          }}
-        >
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <header style={styles.header}>
           <div>
-            <h1
-              style={{
-                fontSize: '42px',
-                fontWeight: 900,
-                color: '#7a4b3a',
-                margin: 0,
-              }}
-            >
-              -Bistro-Bambi
-            </h1>
-            <p
-              style={{
-                margin: '10px 0 0 0',
-                fontSize: '22px',
-                color: '#9a6b5b',
-              }}
-            >
-              月次給与一覧
-            </p>
-            <p
-              style={{
-                margin: '10px 0 0 0',
-                fontSize: '18px',
-                color: '#8a6457',
-              }}
-            >
-              現在の対象店舗：
-              {store ? `${store.store_name} (${store.store_code})` : '未取得'}
-            </p>
+            <div style={styles.brandRow}>
+              <div style={styles.brandMark}>🦌</div>
+              <div>
+                <h1 style={styles.title}>-Bistro-Bambi</h1>
+                <p style={styles.subtitle}>
+                  月次給与一覧 / {targetYear}年{targetMonth}月
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              gap: '12px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link href="/admin/staff/payroll" style={subButtonStyle}>
-              給与管理へ戻る
+          <nav style={styles.nav}>
+            <Link href="/admin/staff/payroll" style={styles.navButton}>
+              給与管理
             </Link>
 
-            <Link href="/admin/staff/payroll/rate-rules" style={subButtonStyle}>
-              単価ルール管理
+            <Link href="/admin/staff/payroll/rate-rules" style={styles.navButton}>
+              単価ルール
             </Link>
 
-            <Link href="/admin/staff" style={subButtonStyle}>
+            <Link href="/admin/staff" style={styles.navButton}>
               従業員管理
             </Link>
 
-            <Link href="/admin" style={subButtonStyle}>
+            <Link href="/admin" style={styles.navButton}>
               管理メニュー
             </Link>
 
-            <button onClick={logout} style={subButtonStyle}>
+            <button onClick={logout} style={styles.navButton}>
               ログアウト
             </button>
-          </div>
-        </div>
+          </nav>
+        </header>
 
         {message && (
-          <div
-            style={{
-              marginBottom: '24px',
-              fontSize: '20px',
-              fontWeight: 700,
-              color: '#7a4b3a',
-              background: '#fff',
-              padding: '14px 16px',
-              borderRadius: '14px',
-              border: '1px solid #f0d9d2',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
+          <div style={styles.message}>
             {message}
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>対象年月</div>
+        <section style={styles.toolbar}>
+          <div>
+            <div style={styles.toolbarTitle}>対象年月</div>
+            <div style={styles.toolbarSub}>
+              {store ? `${store.store_name} (${store.store_code})` : '店舗情報未取得'}
+            </div>
+          </div>
 
-            <div
-              style={{
-                display: 'flex',
-                gap: '12px',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-              }}
-            >
+          <div style={styles.toolbarControls}>
+            <label>
+              <div style={styles.inputLabel}>年</div>
               <input
                 type="number"
                 value={targetYear}
                 onChange={(e) => setTargetYear(e.target.value)}
-                style={inputStyle}
+                style={styles.input}
               />
+            </label>
 
+            <label>
+              <div style={styles.inputLabel}>月</div>
               <input
                 type="number"
                 min="1"
                 max="12"
                 value={targetMonth}
                 onChange={(e) => setTargetMonth(e.target.value)}
-                style={{ ...inputStyle, minWidth: '90px' }}
+                style={{ ...styles.input, width: '100px' }}
               />
+            </label>
 
-              <button
-                type="button"
-                onClick={reloadMonthlyPayroll}
-                disabled={loading}
-                style={primaryButtonStyle}
-              >
-                {loading ? '取得中...' : '月次一覧を再読み込み'}
-              </button>
-            </div>
-          </div>
-
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>給与期間</div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                gap: '16px',
-              }}
+            <button
+              type="button"
+              onClick={reloadMonthlyPayroll}
+              disabled={loading}
+              style={styles.primaryButton}
             >
-              <div style={summaryBoxStyle}>
-                <div style={summaryLabelStyle}>前半</div>
-                <div style={summaryValueSmallStyle}>{getPeriodTitle(firstPeriod)}</div>
-                <div style={summarySubStyle}>
-                  支払日: {firstPeriod ? formatDate(firstPeriod.payday) : '-'}
-                </div>
-              </div>
-
-              <div style={summaryBoxStyle}>
-                <div style={summaryLabelStyle}>後半</div>
-                <div style={summaryValueSmallStyle}>{getPeriodTitle(secondPeriod)}</div>
-                <div style={summarySubStyle}>
-                  支払日: {secondPeriod ? formatDate(secondPeriod.payday) : '-'}
-                </div>
-              </div>
-            </div>
+              {loading ? '取得中...' : '再読み込み'}
+            </button>
           </div>
+        </section>
 
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>従業員別 前半 / 後半 一覧</div>
+        <section style={styles.summaryGrid}>
+          <SummaryCard
+            label="月合計出勤数"
+            value={monthlyTotals.totalAttendance}
+            sub="前半・後半の出勤数合計"
+          />
 
-            {staffRows.length === 0 ? (
-              <p
-                style={{
-                  fontSize: '22px',
-                  color: '#9a6b5b',
-                  margin: 0,
-                  lineHeight: 1.8,
-                }}
-              >
-                給与プレビューがまだありません。
-                <br />
-                給与管理画面で前半・後半の給与プレビューを生成してください。
+          <SummaryCard
+            label="月合計支給額"
+            value={formatMoney(monthlyTotals.totalPay)}
+            sub="前半・後半の総支払額合計"
+          />
+
+          <SummaryCard
+            label="月合計振込額"
+            value={formatMoney(monthlyTotals.totalTransfer)}
+            sub="実際に支払う金額の合計"
+          />
+
+          <SummaryCard
+            label="月合計経常利益"
+            value={formatMoney(monthlyTotals.totalProfit)}
+            sub="前半・後半の経常利益合計"
+          />
+        </section>
+
+        <section style={styles.periodGrid}>
+          <PeriodCard
+            label="前半"
+            period={firstPeriod}
+            summary={firstSummary}
+            formatDate={formatDate}
+            formatMoney={formatMoney}
+            getPeriodTitle={getPeriodTitle}
+          />
+
+          <PeriodCard
+            label="後半"
+            period={secondPeriod}
+            summary={secondSummary}
+            formatDate={formatDate}
+            formatMoney={formatMoney}
+            getPeriodTitle={getPeriodTitle}
+          />
+        </section>
+
+        <section style={styles.panel}>
+          <div style={styles.sectionHead}>
+            <div>
+              <h2 style={styles.sectionTitle}>従業員別 前半 / 後半 一覧</h2>
+              <p style={styles.sectionDescription}>
+                前半・後半の出勤数、累積スタンプ、単価、支給額、振込額を横並びで確認します。
               </p>
-            ) : (
-              <div
-                style={{
-                  overflowX: 'auto',
-                  background: '#fff',
-                  border: '1px solid #efd8d0',
-                  borderRadius: '18px',
-                }}
-              >
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    minWidth: '1400px',
-                  }}
-                >
-                  <thead>
-                    <tr>
-                      <th style={tableHeadStyle} rowSpan={2}>従業員コード</th>
-                      <th style={tableHeadStyle} rowSpan={2}>氏名</th>
-                      <th style={tableHeadStyle} colSpan={5}>前半</th>
-                      <th style={tableHeadStyle} colSpan={5}>後半</th>
-                      <th style={tableHeadStyle} rowSpan={2}>月合計支給額</th>
-                      <th style={tableHeadStyle} rowSpan={2}>月合計振込額</th>
-                    </tr>
-                    <tr>
-                      <th style={tableHeadStyle}>出勤数</th>
-                      <th style={tableHeadStyle}>累積スタンプ</th>
-                      <th style={tableHeadStyle}>単価</th>
-                      <th style={tableHeadStyle}>支給額</th>
-                      <th style={tableHeadStyle}>振込額</th>
-                      <th style={tableHeadStyle}>出勤数</th>
-                      <th style={tableHeadStyle}>累積スタンプ</th>
-                      <th style={tableHeadStyle}>単価</th>
-                      <th style={tableHeadStyle}>支給額</th>
-                      <th style={tableHeadStyle}>振込額</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {staffRows.map((row) => {
-                      const monthlyPay =
-                        Number(row.first?.calculated_pay_amount || 0) +
-                        Number(row.second?.calculated_pay_amount || 0)
-
-                      const monthlyTransfer =
-                        Number(row.first?.transfer_amount || 0) +
-                        Number(row.second?.transfer_amount || 0)
-
-                      return (
-                        <tr key={`${row.staff_code}-${row.user_id}`}>
-                          <td style={tableCellStyle}>{row.staff_code}</td>
-                          <td style={tableCellStyle}>{row.display_name}</td>
-
-                          <td style={tableCellStyle}>{getItemValue(row.first, 'attendance_count')}</td>
-                          <td style={tableCellStyle}>{getItemValue(row.first, 'stamp_count_at_close')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.first, 'applied_unit_pay')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.first, 'calculated_pay_amount')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.first, 'transfer_amount')}</td>
-
-                          <td style={tableCellStyle}>{getItemValue(row.second, 'attendance_count')}</td>
-                          <td style={tableCellStyle}>{getItemValue(row.second, 'stamp_count_at_close')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.second, 'applied_unit_pay')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.second, 'calculated_pay_amount')}</td>
-                          <td style={tableCellStyle}>{getItemMoney(row.second, 'transfer_amount')}</td>
-
-                          <td style={tableCellStyle}>{formatMoney(monthlyPay)}</td>
-                          <td style={tableCellStyle}>{formatMoney(monthlyTransfer)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            </div>
           </div>
 
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>月次集計</div>
-
-            <div
-              style={{
-                overflowX: 'auto',
-                background: '#fff',
-                border: '1px solid #efd8d0',
-                borderRadius: '18px',
-              }}
-            >
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  minWidth: '900px',
-                }}
-              >
+          {staffRows.length === 0 ? (
+            <div style={styles.emptyBox}>
+              給与プレビューがまだありません。
+              <br />
+              給与管理画面で前半・後半の給与プレビューを生成してください。
+            </div>
+          ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={tableHeadStyle}>項目</th>
-                    <th style={tableHeadStyle}>前半</th>
-                    <th style={tableHeadStyle}>後半</th>
-                    <th style={tableHeadStyle}>月合計</th>
+                    <th style={styles.thSticky} rowSpan={2}>従業員コード</th>
+                    <th style={styles.thStickyName} rowSpan={2}>氏名</th>
+                    <th style={styles.thGroupFirst} colSpan={5}>前半</th>
+                    <th style={styles.thGroupSecond} colSpan={5}>後半</th>
+                    <th style={styles.thGroupTotal} colSpan={2}>月合計</th>
+                  </tr>
+                  <tr>
+                    <th style={styles.th}>出勤</th>
+                    <th style={styles.th}>スタンプ</th>
+                    <th style={styles.th}>単価</th>
+                    <th style={styles.th}>支給額</th>
+                    <th style={styles.th}>振込額</th>
+
+                    <th style={styles.th}>出勤</th>
+                    <th style={styles.th}>スタンプ</th>
+                    <th style={styles.th}>単価</th>
+                    <th style={styles.th}>支給額</th>
+                    <th style={styles.th}>振込額</th>
+
+                    <th style={styles.th}>支給額</th>
+                    <th style={styles.th}>振込額</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffRows.map((row) => {
+                    const monthlyPay =
+                      Number(row.first?.calculated_pay_amount || 0) +
+                      Number(row.second?.calculated_pay_amount || 0)
+
+                    const monthlyTransfer =
+                      Number(row.first?.transfer_amount || 0) +
+                      Number(row.second?.transfer_amount || 0)
+
+                    return (
+                      <tr key={`${row.staff_code}-${row.user_id}`}>
+                        <td style={styles.tdSticky}>{row.staff_code}</td>
+                        <td style={styles.tdStickyName}>{row.display_name}</td>
+
+                        <td style={styles.tdCenter}>{getItemValue(row.first, 'attendance_count')}</td>
+                        <td style={styles.tdCenter}>{getItemValue(row.first, 'stamp_count_at_close')}</td>
+                        <td style={styles.td}>{getItemMoney(row.first, 'applied_unit_pay')}</td>
+                        <td style={styles.tdStrong}>{getItemMoney(row.first, 'calculated_pay_amount')}</td>
+                        <td style={styles.tdStrong}>{getItemMoney(row.first, 'transfer_amount')}</td>
+
+                        <td style={styles.tdCenter}>{getItemValue(row.second, 'attendance_count')}</td>
+                        <td style={styles.tdCenter}>{getItemValue(row.second, 'stamp_count_at_close')}</td>
+                        <td style={styles.td}>{getItemMoney(row.second, 'applied_unit_pay')}</td>
+                        <td style={styles.tdStrong}>{getItemMoney(row.second, 'calculated_pay_amount')}</td>
+                        <td style={styles.tdStrong}>{getItemMoney(row.second, 'transfer_amount')}</td>
+
+                        <td style={styles.tdTotal}>{formatMoney(monthlyPay)}</td>
+                        <td style={styles.tdTotal}>{formatMoney(monthlyTransfer)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <div style={styles.bottomGrid}>
+          <section style={styles.panel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <h2 style={styles.sectionTitle}>月次集計</h2>
+                <p style={styles.sectionDescription}>
+                  給与期間ごとの集計を、前半・後半・月合計で比較します。
+                </p>
+              </div>
+            </div>
+
+            <div style={styles.tableWrap}>
+              <table style={styles.compactTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>項目</th>
+                    <th style={styles.th}>前半</th>
+                    <th style={styles.th}>後半</th>
+                    <th style={styles.th}>月合計</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -711,10 +623,10 @@ export default function MonthlyPayrollClient() {
 
                     return (
                       <tr key={key}>
-                        <td style={tableCellStyle}>{label}</td>
-                        <td style={tableCellStyle}>{firstSummary ? formatMoney(firstValue) : '-'}</td>
-                        <td style={tableCellStyle}>{secondSummary ? formatMoney(secondValue) : '-'}</td>
-                        <td style={tableCellStyle}>
+                        <td style={styles.tdLabel}>{label}</td>
+                        <td style={styles.td}>{firstSummary ? formatMoney(firstValue) : '-'}</td>
+                        <td style={styles.td}>{secondSummary ? formatMoney(secondValue) : '-'}</td>
+                        <td style={styles.tdTotal}>
                           {firstSummary || secondSummary
                             ? formatMoney(firstValue + secondValue)
                             : '-'}
@@ -725,85 +637,569 @@ export default function MonthlyPayrollClient() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
 
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>備考</div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                gap: '16px',
-              }}
-            >
-              <div style={summaryBoxStyle}>
-                <div style={summaryLabelStyle}>前半備考</div>
-                <div style={memoBoxStyle}>{firstInput?.memo || firstSummary?.memo || 'なし'}</div>
-              </div>
-
-              <div style={summaryBoxStyle}>
-                <div style={summaryLabelStyle}>後半備考</div>
-                <div style={memoBoxStyle}>{secondInput?.memo || secondSummary?.memo || 'なし'}</div>
+          <section style={styles.panel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <h2 style={styles.sectionTitle}>備考</h2>
+                <p style={styles.sectionDescription}>
+                  給与期間ごとに保存したイベントや支払いメモです。
+                </p>
               </div>
             </div>
-          </div>
+
+            <div style={styles.memoGrid}>
+              <div style={styles.memoCard}>
+                <div style={styles.memoLabel}>前半備考</div>
+                <div style={styles.memoText}>{firstInput?.memo || firstSummary?.memo || 'なし'}</div>
+              </div>
+
+              <div style={styles.memoCard}>
+                <div style={styles.memoLabel}>後半備考</div>
+                <div style={styles.memoText}>{secondInput?.memo || secondSummary?.memo || 'なし'}</div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
   )
 }
 
-const tableHeadStyle = {
-  background: '#fff1e9',
-  color: '#7a4b3a',
-  textAlign: 'left',
-  padding: '14px',
-  borderBottom: '1px solid #efd8d0',
-  borderRight: '1px solid #efd8d0',
-  whiteSpace: 'nowrap',
-  fontSize: '16px',
+function SummaryCard({ label, value, sub }) {
+  return (
+    <div style={styles.summaryCard}>
+      <div style={styles.summaryLabel}>{label}</div>
+      <div style={styles.summaryValue}>{value}</div>
+      <div style={styles.summarySub}>{sub}</div>
+    </div>
+  )
 }
 
-const tableCellStyle = {
-  padding: '14px',
-  borderBottom: '1px solid #f0d9d2',
-  borderRight: '1px solid #f7e7e1',
-  whiteSpace: 'nowrap',
-  fontSize: '16px',
-  color: '#5f4137',
+function PeriodCard({ label, period, summary, formatDate, formatMoney, getPeriodTitle }) {
+  return (
+    <section style={styles.periodPanel}>
+      <div style={styles.periodTop}>
+        <div>
+          <div style={styles.periodBadge}>{label}</div>
+          <div style={styles.periodMain}>{period ? getPeriodTitle(period) : '-'}</div>
+        </div>
+        <div style={styles.periodStatus}>{period?.status || '-'}</div>
+      </div>
+
+      <div style={styles.periodMetaGrid}>
+        <div>
+          <div style={styles.miniLabel}>支払日</div>
+          <div style={styles.miniValue}>{period ? formatDate(period.payday) : '-'}</div>
+        </div>
+
+        <div>
+          <div style={styles.miniLabel}>総支払額</div>
+          <div style={styles.miniValue}>{summary ? formatMoney(summary.total_pay_amount) : '-'}</div>
+        </div>
+
+        <div>
+          <div style={styles.miniLabel}>振込額合計</div>
+          <div style={styles.miniValue}>{summary ? formatMoney(summary.total_transfer_amount) : '-'}</div>
+        </div>
+
+        <div>
+          <div style={styles.miniLabel}>経常利益</div>
+          <div style={styles.miniValue}>{summary ? formatMoney(summary.total_profit_amount) : '-'}</div>
+        </div>
+      </div>
+    </section>
+  )
 }
 
-const summaryBoxStyle = {
-  background: '#fff',
-  border: '1px solid #f0d9d2',
-  borderRadius: '16px',
-  padding: '16px',
+const theme = {
+  bg: '#eef2ec',
+  bg2: '#f7faf5',
+  panel: '#fbfdf9',
+  panel2: '#f3f7ef',
+  border: '#d8e3d2',
+  border2: '#c4d3bd',
+  text: '#263427',
+  muted: '#6c7b67',
+  deep: '#2f4a34',
+  green: '#52785a',
+  green2: '#6f9272',
+  pale: '#e6efe1',
+  pale2: '#edf4e8',
+  white: '#ffffff',
 }
 
-const summaryLabelStyle = {
-  fontSize: '16px',
-  color: '#9a6b5b',
-  marginBottom: '8px',
-  fontWeight: 700,
-}
-
-const summaryValueSmallStyle = {
-  fontSize: '20px',
-  fontWeight: 800,
-  color: '#7a4b3a',
-  lineHeight: 1.5,
-}
-
-const summarySubStyle = {
-  fontSize: '16px',
-  color: '#8a6457',
-  marginTop: '8px',
-}
-
-const memoBoxStyle = {
-  fontSize: '18px',
-  color: '#5f4137',
-  lineHeight: 1.7,
-  whiteSpace: 'pre-wrap',
+const styles = {
+  page: {
+    minHeight: '100vh',
+    background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
+    color: theme.text,
+    padding: '24px',
+  },
+  container: {
+    maxWidth: '1780px',
+    margin: '0 auto',
+  },
+  header: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '24px',
+    padding: '24px 28px',
+    marginBottom: '20px',
+    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '18px',
+    flexWrap: 'wrap',
+  },
+  brandRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+  },
+  brandMark: {
+    width: '58px',
+    height: '58px',
+    borderRadius: '18px',
+    background: theme.pale,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '30px',
+    border: `1px solid ${theme.border2}`,
+  },
+  title: {
+    fontSize: '38px',
+    fontWeight: 900,
+    color: theme.deep,
+    margin: 0,
+    letterSpacing: '-0.02em',
+  },
+  subtitle: {
+    margin: '8px 0 0',
+    fontSize: '18px',
+    color: theme.muted,
+  },
+  nav: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '10px',
+  },
+  navButton: {
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 800,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  message: {
+    marginBottom: '18px',
+    fontSize: '16px',
+    fontWeight: 800,
+    color: theme.deep,
+    background: theme.white,
+    padding: '14px 16px',
+    borderRadius: '14px',
+    border: `1px solid ${theme.border}`,
+    whiteSpace: 'pre-wrap',
+  },
+  toolbar: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    marginBottom: '18px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '16px',
+    flexWrap: 'wrap',
+  },
+  toolbarTitle: {
+    fontSize: '22px',
+    fontWeight: 900,
+    color: theme.deep,
+  },
+  toolbarSub: {
+    fontSize: '14px',
+    color: theme.muted,
+    marginTop: '6px',
+  },
+  toolbarControls: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  inputLabel: {
+    fontSize: '12px',
+    color: theme.muted,
+    fontWeight: 900,
+    marginBottom: '6px',
+  },
+  input: {
+    width: '140px',
+    boxSizing: 'border-box',
+    padding: '12px 13px',
+    fontSize: '16px',
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.text,
+    outline: 'none',
+  },
+  primaryButton: {
+    padding: '13px 18px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: 'none',
+    background: theme.green,
+    color: theme.white,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+    minHeight: '46px',
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '14px',
+    marginBottom: '18px',
+  },
+  summaryCard: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '18px',
+    padding: '18px',
+    boxShadow: '0 10px 24px rgba(47, 74, 52, 0.06)',
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    fontWeight: 900,
+    color: theme.muted,
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '27px',
+    fontWeight: 950,
+    color: theme.deep,
+    lineHeight: 1.2,
+  },
+  summarySub: {
+    fontSize: '12px',
+    color: theme.muted,
+    marginTop: '8px',
+    lineHeight: 1.5,
+  },
+  periodGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '16px',
+    marginBottom: '18px',
+  },
+  periodPanel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '18px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  periodTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '14px',
+    alignItems: 'flex-start',
+    marginBottom: '16px',
+  },
+  periodBadge: {
+    display: 'inline-flex',
+    padding: '5px 10px',
+    borderRadius: '999px',
+    background: theme.green,
+    color: theme.white,
+    fontSize: '13px',
+    fontWeight: 900,
+    marginBottom: '10px',
+  },
+  periodMain: {
+    fontSize: '18px',
+    fontWeight: 900,
+    color: theme.deep,
+    lineHeight: 1.5,
+  },
+  periodStatus: {
+    padding: '7px 10px',
+    borderRadius: '999px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.muted,
+    fontSize: '12px',
+    fontWeight: 900,
+  },
+  periodMetaGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '10px',
+  },
+  miniLabel: {
+    fontSize: '11px',
+    color: theme.muted,
+    fontWeight: 900,
+    marginBottom: '6px',
+  },
+  miniValue: {
+    fontSize: '15px',
+    color: theme.deep,
+    fontWeight: 900,
+    lineHeight: 1.4,
+  },
+  panel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    marginBottom: '18px',
+  },
+  sectionHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '16px',
+    marginBottom: '16px',
+  },
+  sectionTitle: {
+    fontSize: '24px',
+    fontWeight: 900,
+    color: theme.deep,
+    margin: 0,
+  },
+  sectionDescription: {
+    fontSize: '15px',
+    color: theme.muted,
+    lineHeight: 1.7,
+    margin: '6px 0 0',
+  },
+  emptyBox: {
+    background: theme.white,
+    border: `1px dashed ${theme.border2}`,
+    borderRadius: '16px',
+    padding: '42px 24px',
+    textAlign: 'center',
+    color: theme.muted,
+    fontSize: '17px',
+    lineHeight: 1.8,
+  },
+  tableWrap: {
+    overflowX: 'auto',
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '16px',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    minWidth: '1500px',
+  },
+  compactTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    minWidth: '760px',
+  },
+  th: {
+    background: theme.pale,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  thSticky: {
+    position: 'sticky',
+    left: 0,
+    zIndex: 4,
+    background: theme.pale,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  thStickyName: {
+    position: 'sticky',
+    left: '128px',
+    zIndex: 4,
+    background: theme.pale,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  thGroupFirst: {
+    background: '#dfe9d9',
+    color: theme.deep,
+    textAlign: 'center',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  thGroupSecond: {
+    background: '#e9f0e4',
+    color: theme.deep,
+    textAlign: 'center',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  thGroupTotal: {
+    background: '#cfddc8',
+    color: theme.deep,
+    textAlign: 'center',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border2}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  td: {
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.text,
+    background: theme.white,
+  },
+  tdStrong: {
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 900,
+    background: theme.white,
+  },
+  tdCenter: {
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.text,
+    textAlign: 'center',
+    background: theme.white,
+  },
+  tdLabel: {
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 900,
+    background: theme.white,
+  },
+  tdTotal: {
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 950,
+    background: theme.pale2,
+  },
+  tdSticky: {
+    position: 'sticky',
+    left: 0,
+    zIndex: 3,
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 900,
+    background: theme.white,
+    minWidth: '128px',
+  },
+  tdStickyName: {
+    position: 'sticky',
+    left: '128px',
+    zIndex: 3,
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    borderRight: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.text,
+    background: theme.white,
+    minWidth: '150px',
+  },
+  bottomGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1.25fr 0.75fr',
+    gap: '18px',
+    alignItems: 'start',
+  },
+  memoGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '12px',
+  },
+  memoCard: {
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '14px',
+    padding: '14px',
+  },
+  memoLabel: {
+    fontSize: '12px',
+    color: theme.muted,
+    fontWeight: 900,
+    marginBottom: '8px',
+  },
+  memoText: {
+    fontSize: '15px',
+    color: theme.text,
+    lineHeight: 1.7,
+    whiteSpace: 'pre-wrap',
+  },
+  loadingText: {
+    fontSize: '18px',
+    margin: 0,
+    color: theme.muted,
+  },
 }

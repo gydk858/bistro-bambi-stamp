@@ -60,15 +60,10 @@ export default function RateRulesClient() {
       .eq('setting_key', 'current_store_code')
       .single()
 
-    if (settingError) {
-      throw settingError
-    }
+    if (settingError) throw settingError
 
     const currentStoreCode = setting?.setting_value
-
-    if (!currentStoreCode) {
-      throw new Error('current_store_code が設定されていません')
-    }
+    if (!currentStoreCode) throw new Error('current_store_code が設定されていません')
 
     const { data: storeData, error: storeError } = await supabase
       .from('stores')
@@ -76,9 +71,7 @@ export default function RateRulesClient() {
       .eq('store_code', currentStoreCode)
       .single()
 
-    if (storeError) {
-      throw storeError
-    }
+    if (storeError) throw storeError
 
     return storeData
   }
@@ -250,9 +243,7 @@ export default function RateRulesClient() {
         p_unit_pay_11_plus: toAmountNumber(unitPay11Plus),
       })
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       await fetchRateRuleSets(store.store_id)
       resetForm()
@@ -260,6 +251,45 @@ export default function RateRulesClient() {
     } catch (error) {
       console.error(error)
       setMessage(`単価ルールの保存に失敗しました: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const deleteRuleSet = async (ruleSet) => {
+    if (!ruleSet?.payroll_rate_rule_set_id) return
+
+    const ok = window.confirm(
+      `単価ルール「${ruleSet.rule_name}」を削除しますか？\n\n` +
+        '給与期間で使用済みのルールは削除できません。\n' +
+        '今後使わないだけの場合は、編集で「有効にする」のチェックを外してください。'
+    )
+
+    if (!ok) return
+
+    setLoading(true)
+    setMessage('単価ルールを削除中です...')
+
+    try {
+      const { data, error } = await supabase.rpc('delete_payroll_rate_rule_set_basic', {
+        p_payroll_rate_rule_set_id: Number(ruleSet.payroll_rate_rule_set_id),
+      })
+
+      if (error) throw error
+
+      if (String(editingRuleSetId) === String(ruleSet.payroll_rate_rule_set_id)) {
+        resetForm()
+      }
+
+      await fetchRateRuleSets(store.store_id)
+
+      const result = Array.isArray(data) && data.length > 0 ? data[0] : null
+      const deletedRuleCount = result?.deleted_rule_count ?? 0
+
+      setMessage(`単価ルールを削除しました（明細 ${deletedRuleCount} 件）`)
+    } catch (error) {
+      console.error(error)
+      setMessage(`単価ルールの削除に失敗しました: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -288,89 +318,12 @@ export default function RateRulesClient() {
     return `${rule.min_stamp_count}〜${rule.max_stamp_count}個`
   }
 
-  const cardBoxStyle = {
-    background: '#fffaf8',
-    border: '1px solid #f0d9d2',
-    borderRadius: '20px',
-    padding: '24px',
-    boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
-  }
-
-  const sectionTitleStyle = {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#7a4b3a',
-    marginBottom: '14px',
-  }
-
-  const inputStyle = {
-    padding: '16px 18px',
-    fontSize: '20px',
-    borderRadius: '14px',
-    border: '1px solid #dcbeb2',
-    background: '#fff',
-    color: '#6b4235',
-    width: '100%',
-    outline: 'none',
-    boxSizing: 'border-box',
-  }
-
-  const textareaStyle = {
-    ...inputStyle,
-    minHeight: '100px',
-    resize: 'vertical',
-    lineHeight: 1.6,
-  }
-
-  const primaryButtonStyle = {
-    padding: '16px 24px',
-    fontSize: '20px',
-    fontWeight: 700,
-    borderRadius: '14px',
-    border: 'none',
-    background: '#d98b7b',
-    color: '#fff',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
-    opacity: loading ? 0.7 : 1,
-  }
-
-  const subButtonStyle = {
-    padding: '16px 24px',
-    fontSize: '20px',
-    fontWeight: 700,
-    borderRadius: '14px',
-    border: '1px solid #e6c6bb',
-    background: '#fff',
-    color: '#7a4b3a',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    textDecoration: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: loading ? 0.7 : 1,
-  }
-
-  const inputLabelStyle = {
-    fontSize: '16px',
-    color: '#9a6b5b',
-    fontWeight: 700,
-    marginBottom: '8px',
-  }
-
   if (initialLoading) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
-          padding: '32px',
-          color: '#5f4137',
-        }}
-      >
-        <div style={{ maxWidth: '1500px', margin: '0 auto' }}>
-          <div style={cardBoxStyle}>
-            <p style={{ fontSize: '22px', margin: 0 }}>読み込み中です...</p>
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.panel}>
+            <p style={styles.loadingText}>読み込み中です...</p>
           </div>
         </div>
       </div>
@@ -378,266 +331,184 @@ export default function RateRulesClient() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
-        padding: '32px',
-        color: '#5f4137',
-      }}
-    >
-      <div style={{ maxWidth: '1500px', margin: '0 auto' }}>
-        <div
-          style={{
-            background: '#fff6f1',
-            border: '1px solid #f2ddd5',
-            borderRadius: '28px',
-            padding: '28px 32px',
-            marginBottom: '28px',
-            boxShadow: '0 12px 30px rgba(201, 157, 145, 0.10)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '20px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                fontSize: '42px',
-                fontWeight: 900,
-                color: '#7a4b3a',
-                margin: 0,
-              }}
-            >
-              -Bistro-Bambi
-            </h1>
-            <p
-              style={{
-                margin: '10px 0 0 0',
-                fontSize: '22px',
-                color: '#9a6b5b',
-              }}
-            >
-              単価ルール管理
-            </p>
-            <p
-              style={{
-                margin: '10px 0 0 0',
-                fontSize: '18px',
-                color: '#8a6457',
-              }}
-            >
-              現在の対象店舗：
-              {store ? `${store.store_name} (${store.store_code})` : '未取得'}
-            </p>
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.brandRow}>
+            <div style={styles.brandMark}>🦌</div>
+            <div>
+              <h1 style={styles.title}>-Bistro-Bambi</h1>
+              <p style={styles.subtitle}>単価ルール管理</p>
+              <p style={styles.storeText}>
+                {store ? `${store.store_name} (${store.store_code})` : '店舗情報未取得'}
+              </p>
+            </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              gap: '12px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link href="/admin/staff/payroll" style={subButtonStyle}>
-              給与管理へ戻る
+          <nav style={styles.nav}>
+            <Link href="/admin/staff/payroll" style={styles.navButton}>
+              給与管理
             </Link>
 
-            <Link href="/admin/staff" style={subButtonStyle}>
+            <Link href="/admin/staff/payroll/monthly" style={styles.navButton}>
+              月次一覧
+            </Link>
+
+            <Link href="/admin/staff" style={styles.navButton}>
               従業員管理
             </Link>
 
-            <Link href="/admin" style={subButtonStyle}>
+            <Link href="/admin" style={styles.navButton}>
               管理メニュー
             </Link>
 
-            <button onClick={logout} style={subButtonStyle}>
+            <button onClick={logout} style={styles.navButton}>
               ログアウト
             </button>
-          </div>
-        </div>
+          </nav>
+        </header>
 
         {message && (
-          <div
-            style={{
-              marginBottom: '24px',
-              fontSize: '20px',
-              fontWeight: 700,
-              color: '#7a4b3a',
-              background: '#fff',
-              padding: '14px 16px',
-              borderRadius: '14px',
-              border: '1px solid #f0d9d2',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
+          <div style={styles.message}>
             {message}
           </div>
         )}
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '0.95fr 1.45fr',
-            gap: '28px',
-            alignItems: 'start',
-          }}
-        >
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>
-              {editingRuleSetId ? '単価ルール編集' : '単価ルール新規作成'}
+        <section style={styles.summaryGrid}>
+          <SummaryCard
+            label="登録ルール数"
+            value={ruleSets.length}
+            sub="この店舗に登録済みの単価ルール"
+          />
+
+          <SummaryCard
+            label="有効ルール"
+            value={ruleSets.filter((ruleSet) => ruleSet.is_active).length}
+            sub="給与計算で選択できるルール"
+          />
+
+          <SummaryCard
+            label="編集中"
+            value={editingRuleSet ? editingRuleSet.rule_name : '新規作成'}
+            sub={editingRuleSet ? `ID: ${editingRuleSet.payroll_rate_rule_set_id}` : '新しい単価ルールを作成中'}
+          />
+        </section>
+
+        <div style={styles.layout}>
+          <aside style={styles.editorPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <h2 style={styles.sectionTitle}>
+                  {editingRuleSetId ? '単価ルール編集' : '単価ルール新規作成'}
+                </h2>
+                <p style={styles.sectionDescription}>
+                  スタンプ数に応じた給与単価を3段階で設定します。
+                </p>
+              </div>
             </div>
 
             {editingRuleSet && (
-              <p
-                style={{
-                  fontSize: '18px',
-                  color: '#8a6457',
-                  marginTop: 0,
-                  marginBottom: '18px',
-                  lineHeight: 1.7,
-                }}
-              >
+              <div style={styles.editingBox}>
                 編集中: {editingRuleSet.rule_name}
-              </p>
+              </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={styles.formStack}>
               <label>
-                <div style={inputLabelStyle}>ルール名</div>
+                <div style={styles.inputLabel}>ルール名</div>
                 <input
                   type="text"
                   value={ruleName}
                   onChange={(e) => setRuleName(e.target.value)}
-                  style={inputStyle}
+                  style={styles.input}
                   placeholder="例：Bistro-Bambi 4月後半ルール"
                 />
               </label>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '12px',
-                }}
-              >
+              <div style={styles.formGridTwo}>
                 <label>
-                  <div style={inputLabelStyle}>適用開始日</div>
+                  <div style={styles.inputLabel}>適用開始日</div>
                   <input
                     type="date"
                     value={effectiveFrom}
                     onChange={(e) => setEffectiveFrom(e.target.value)}
-                    style={inputStyle}
+                    style={styles.input}
                   />
                 </label>
 
                 <label>
-                  <div style={inputLabelStyle}>適用終了日</div>
+                  <div style={styles.inputLabel}>適用終了日</div>
                   <input
                     type="date"
                     value={effectiveTo}
                     onChange={(e) => setEffectiveTo(e.target.value)}
-                    style={inputStyle}
+                    style={styles.input}
                   />
                 </label>
               </div>
 
-              <label
-                style={{
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'center',
-                  fontSize: '18px',
-                  fontWeight: 700,
-                  color: '#7a4b3a',
-                }}
-              >
+              <label style={styles.checkboxLabel}>
                 <input
                   type="checkbox"
                   checked={isActive}
                   onChange={(e) => setIsActive(e.target.checked)}
-                  style={{ width: '20px', height: '20px' }}
+                  style={styles.checkbox}
                 />
                 有効にする
               </label>
 
-              <div
-                style={{
-                  background: '#fff',
-                  border: '1px solid #f0d9d2',
-                  borderRadius: '18px',
-                  padding: '18px',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '22px',
-                    fontWeight: 800,
-                    color: '#7a4b3a',
-                    marginBottom: '14px',
-                  }}
-                >
-                  スタンプ数別単価
-                </div>
+              <div style={styles.rateBox}>
+                <div style={styles.rateTitle}>スタンプ数別単価</div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={styles.formStack}>
                   <label>
-                    <div style={inputLabelStyle}>0〜5個</div>
+                    <div style={styles.inputLabel}>0〜5個</div>
                     <input
                       type="text"
                       value={unitPay05}
                       onChange={handleAmountChange(setUnitPay05)}
-                      style={inputStyle}
+                      style={styles.input}
                     />
                   </label>
 
                   <label>
-                    <div style={inputLabelStyle}>6〜10個</div>
+                    <div style={styles.inputLabel}>6〜10個</div>
                     <input
                       type="text"
                       value={unitPay610}
                       onChange={handleAmountChange(setUnitPay610)}
-                      style={inputStyle}
+                      style={styles.input}
                     />
                   </label>
 
                   <label>
-                    <div style={inputLabelStyle}>11個以上</div>
+                    <div style={styles.inputLabel}>11個以上</div>
                     <input
                       type="text"
                       value={unitPay11Plus}
                       onChange={handleAmountChange(setUnitPay11Plus)}
-                      style={inputStyle}
+                      style={styles.input}
                     />
                   </label>
                 </div>
               </div>
 
               <label>
-                <div style={inputLabelStyle}>メモ</div>
+                <div style={styles.inputLabel}>メモ</div>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  style={textareaStyle}
+                  style={styles.textarea}
                   placeholder="売上に応じたルール、イベント時用など"
                 />
               </label>
 
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '12px',
-                  flexWrap: 'wrap',
-                  marginTop: '4px',
-                }}
-              >
+              <div style={styles.actionRow}>
                 <button
                   type="button"
                   onClick={saveRuleSet}
                   disabled={loading}
-                  style={primaryButtonStyle}
+                  style={styles.primaryButton}
                 >
                   {loading ? '保存中...' : editingRuleSetId ? '変更を保存' : '新規作成'}
                 </button>
@@ -646,155 +517,528 @@ export default function RateRulesClient() {
                   type="button"
                   onClick={resetForm}
                   disabled={loading}
-                  style={subButtonStyle}
+                  style={styles.secondaryButton}
                 >
                   新規入力に戻す
                 </button>
               </div>
             </div>
-          </div>
+          </aside>
 
-          <div style={cardBoxStyle}>
-            <div style={sectionTitleStyle}>単価ルール一覧</div>
+          <main style={styles.listPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <h2 style={styles.sectionTitle}>単価ルール一覧</h2>
+                <p style={styles.sectionDescription}>
+                  給与期間ごとに選択できるルールです。売上や運用状況に応じて切り替えます。
+                </p>
+              </div>
+            </div>
 
             {ruleSets.length === 0 ? (
-              <p
-                style={{
-                  fontSize: '22px',
-                  color: '#9a6b5b',
-                  margin: 0,
-                  lineHeight: 1.8,
-                }}
-              >
+              <div style={styles.emptyBox}>
                 単価ルールがまだありません。
-              </p>
+              </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={styles.ruleSetGrid}>
                 {ruleSets.map((ruleSet) => (
                   <div
                     key={ruleSet.payroll_rate_rule_set_id}
                     style={{
-                      background: '#fff',
-                      border: editingRuleSetId === ruleSet.payroll_rate_rule_set_id
-                        ? '2px solid #d98b7b'
-                        : '1px solid #f0d9d2',
-                      borderRadius: '18px',
-                      padding: '18px',
+                      ...styles.ruleSetCard,
+                      ...(editingRuleSetId === ruleSet.payroll_rate_rule_set_id
+                        ? styles.ruleSetCardActive
+                        : {}),
                     }}
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: '12px',
-                        alignItems: 'flex-start',
-                        flexWrap: 'wrap',
-                      }}
-                    >
+                    <div style={styles.ruleSetTop}>
                       <div>
-                        <div
-                          style={{
-                            fontSize: '24px',
-                            fontWeight: 900,
-                            color: '#7a4b3a',
-                            marginBottom: '8px',
-                          }}
-                        >
-                          {ruleSet.rule_name}
-                        </div>
+                        <div style={styles.ruleSetName}>{ruleSet.rule_name}</div>
 
-                        <div
-                          style={{
-                            fontSize: '16px',
-                            color: '#8a6457',
-                            lineHeight: 1.7,
-                          }}
-                        >
+                        <div style={styles.ruleSetMeta}>
                           ID: {ruleSet.payroll_rate_rule_set_id}
                           <br />
                           適用開始: {formatDate(ruleSet.effective_from)}
                           {ruleSet.effective_to
                             ? ` / 適用終了: ${formatDate(ruleSet.effective_to)}`
                             : ' / 適用終了: なし'}
-                          <br />
-                          状態: {ruleSet.is_active ? '有効' : '無効'}
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => startEdit(ruleSet)}
-                        disabled={loading}
-                        style={subButtonStyle}
-                      >
-                        編集
-                      </button>
+                      <div style={ruleSet.is_active ? styles.activeBadge : styles.inactiveBadge}>
+                        {ruleSet.is_active ? '有効' : '無効'}
+                      </div>
                     </div>
 
                     {ruleSet.note && (
-                      <div
-                        style={{
-                          marginTop: '12px',
-                          fontSize: '16px',
-                          color: '#8a6457',
-                          background: '#fffaf8',
-                          border: '1px solid #f4ded7',
-                          borderRadius: '12px',
-                          padding: '10px 12px',
-                          lineHeight: 1.6,
-                        }}
-                      >
+                      <div style={styles.noteBox}>
                         {ruleSet.note}
                       </div>
                     )}
 
-                    <div
-                      style={{
-                        marginTop: '14px',
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                        gap: '10px',
-                      }}
-                    >
+                    <div style={styles.ruleRows}>
                       {ruleSet.rules.map((rule) => (
                         <div
                           key={rule.payroll_rate_rule_id}
-                          style={{
-                            background: '#fffaf8',
-                            border: '1px solid #f2ddd5',
-                            borderRadius: '14px',
-                            padding: '12px',
-                          }}
+                          style={styles.ruleRow}
                         >
-                          <div
-                            style={{
-                              fontSize: '15px',
-                              color: '#9a6b5b',
-                              marginBottom: '6px',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {formatRuleRange(rule)}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: '22px',
-                              color: '#7a4b3a',
-                              fontWeight: 900,
-                            }}
-                          >
-                            {formatMoney(rule.unit_pay)}
-                          </div>
+                          <span>{formatRuleRange(rule)}</span>
+                          <strong>{formatMoney(rule.unit_pay)}</strong>
                         </div>
                       ))}
+                    </div>
+
+                    <div style={styles.cardFooter}>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(ruleSet)}
+                        disabled={loading}
+                        style={styles.editButton}
+                      >
+                        編集
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteRuleSet(ruleSet)}
+                        disabled={loading}
+                        style={styles.deleteButton}
+                      >
+                        削除
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </main>
         </div>
       </div>
     </div>
   )
+}
+
+function SummaryCard({ label, value, sub }) {
+  return (
+    <div style={styles.summaryCard}>
+      <div style={styles.summaryLabel}>{label}</div>
+      <div style={styles.summaryValue}>{value}</div>
+      <div style={styles.summarySub}>{sub}</div>
+    </div>
+  )
+}
+
+const theme = {
+  bg: '#eef2ec',
+  bg2: '#f7faf5',
+  panel: '#fbfdf9',
+  panel2: '#f3f7ef',
+  border: '#d8e3d2',
+  border2: '#c4d3bd',
+  text: '#263427',
+  muted: '#6c7b67',
+  deep: '#2f4a34',
+  green: '#52785a',
+  green2: '#6f9272',
+  pale: '#e6efe1',
+  pale2: '#edf4e8',
+  white: '#ffffff',
+  danger: '#8f5b50',
+}
+
+const styles = {
+  page: {
+    minHeight: '100vh',
+    background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
+    color: theme.text,
+    padding: '24px',
+  },
+  container: {
+    maxWidth: '1720px',
+    margin: '0 auto',
+  },
+  header: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '24px',
+    padding: '24px 28px',
+    marginBottom: '20px',
+    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '18px',
+    flexWrap: 'wrap',
+  },
+  brandRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+  },
+  brandMark: {
+    width: '58px',
+    height: '58px',
+    borderRadius: '18px',
+    background: theme.pale,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '30px',
+    border: `1px solid ${theme.border2}`,
+  },
+  title: {
+    fontSize: '38px',
+    fontWeight: 900,
+    color: theme.deep,
+    margin: 0,
+    letterSpacing: '-0.02em',
+  },
+  subtitle: {
+    margin: '8px 0 0',
+    fontSize: '18px',
+    color: theme.muted,
+  },
+  storeText: {
+    margin: '6px 0 0',
+    fontSize: '13px',
+    color: theme.muted,
+  },
+  nav: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '10px',
+  },
+  navButton: {
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 800,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  message: {
+    marginBottom: '18px',
+    fontSize: '16px',
+    fontWeight: 800,
+    color: theme.deep,
+    background: theme.white,
+    padding: '14px 16px',
+    borderRadius: '14px',
+    border: `1px solid ${theme.border}`,
+    whiteSpace: 'pre-wrap',
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '14px',
+    marginBottom: '18px',
+  },
+  summaryCard: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '18px',
+    padding: '18px',
+    boxShadow: '0 10px 24px rgba(47, 74, 52, 0.06)',
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    fontWeight: 900,
+    color: theme.muted,
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '24px',
+    fontWeight: 950,
+    color: theme.deep,
+    lineHeight: 1.3,
+    wordBreak: 'break-word',
+  },
+  summarySub: {
+    fontSize: '12px',
+    color: theme.muted,
+    marginTop: '8px',
+    lineHeight: 1.5,
+  },
+  layout: {
+    display: 'grid',
+    gridTemplateColumns: '420px minmax(0, 1fr)',
+    gap: '20px',
+    alignItems: 'start',
+  },
+  editorPanel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    position: 'sticky',
+    top: '18px',
+  },
+  listPanel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    minWidth: 0,
+  },
+  panel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  sectionHead: {
+    marginBottom: '16px',
+  },
+  sectionTitle: {
+    fontSize: '24px',
+    fontWeight: 900,
+    color: theme.deep,
+    margin: 0,
+  },
+  sectionDescription: {
+    fontSize: '15px',
+    color: theme.muted,
+    lineHeight: 1.7,
+    margin: '6px 0 0',
+  },
+  editingBox: {
+    background: theme.pale,
+    border: `1px solid ${theme.border2}`,
+    borderRadius: '14px',
+    padding: '12px 14px',
+    color: theme.deep,
+    fontSize: '14px',
+    fontWeight: 900,
+    marginBottom: '16px',
+  },
+  formStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  formGridTwo: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '12px',
+  },
+  inputLabel: {
+    fontSize: '12px',
+    color: theme.muted,
+    fontWeight: 900,
+    marginBottom: '6px',
+  },
+  input: {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '12px 13px',
+    fontSize: '16px',
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.text,
+    outline: 'none',
+  },
+  textarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '12px 13px',
+    fontSize: '15px',
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.text,
+    outline: 'none',
+    minHeight: '100px',
+    resize: 'vertical',
+    lineHeight: 1.7,
+  },
+  checkboxLabel: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center',
+    fontSize: '15px',
+    fontWeight: 900,
+    color: theme.deep,
+  },
+  checkbox: {
+    width: '18px',
+    height: '18px',
+  },
+  rateBox: {
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '16px',
+    padding: '16px',
+  },
+  rateTitle: {
+    fontSize: '18px',
+    fontWeight: 900,
+    color: theme.deep,
+    marginBottom: '12px',
+  },
+  actionRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px',
+    marginTop: '2px',
+  },
+  primaryButton: {
+    justifyContent: 'center',
+    padding: '13px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: 'none',
+    background: theme.green,
+    color: theme.white,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+  },
+  secondaryButton: {
+    justifyContent: 'center',
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  emptyBox: {
+    background: theme.white,
+    border: `1px dashed ${theme.border2}`,
+    borderRadius: '16px',
+    padding: '42px 24px',
+    textAlign: 'center',
+    color: theme.muted,
+    fontSize: '17px',
+    lineHeight: 1.8,
+  },
+  ruleSetGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: '16px',
+  },
+  ruleSetCard: {
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '18px',
+    padding: '18px',
+    boxShadow: '0 8px 20px rgba(47, 74, 52, 0.05)',
+  },
+  ruleSetCardActive: {
+    border: `2px solid ${theme.green}`,
+    background: theme.pale2,
+  },
+  ruleSetTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '14px',
+    alignItems: 'flex-start',
+    marginBottom: '12px',
+  },
+  ruleSetName: {
+    fontSize: '19px',
+    fontWeight: 950,
+    color: theme.deep,
+    lineHeight: 1.45,
+  },
+  ruleSetMeta: {
+    fontSize: '12px',
+    color: theme.muted,
+    marginTop: '8px',
+    lineHeight: 1.6,
+  },
+  activeBadge: {
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.green,
+    color: theme.white,
+    fontSize: '12px',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  inactiveBadge: {
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.panel2,
+    color: theme.muted,
+    border: `1px solid ${theme.border}`,
+    fontSize: '12px',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  noteBox: {
+    marginTop: '10px',
+    fontSize: '13px',
+    color: theme.muted,
+    background: theme.panel2,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '12px',
+    padding: '10px 12px',
+    lineHeight: 1.6,
+  },
+  ruleRows: {
+    marginTop: '12px',
+    border: `1px solid ${theme.border}`,
+    borderRadius: '14px',
+    overflow: 'hidden',
+  },
+  ruleRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    padding: '12px 13px',
+    borderBottom: `1px solid ${theme.border}`,
+    fontSize: '15px',
+    color: theme.text,
+    background: theme.white,
+  },
+  cardFooter: {
+    marginTop: '14px',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  editButton: {
+    padding: '10px 14px',
+    fontSize: '14px',
+    fontWeight: 900,
+    borderRadius: '10px',
+    border: 'none',
+    background: theme.green,
+    color: theme.white,
+    cursor: 'pointer',
+  },
+  deleteButton: {
+    padding: '10px 14px',
+    fontSize: '14px',
+    fontWeight: 900,
+    borderRadius: '10px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.danger,
+    cursor: 'pointer',
+  },
+  loadingText: {
+    fontSize: '18px',
+    margin: 0,
+    color: theme.muted,
+  },
 }

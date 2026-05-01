@@ -366,6 +366,28 @@ async function getStaffCardByCodeOrThrow(supabase, staffCode) {
   return card;
 }
 
+async function assertActiveStaffEmployeeByUserId(supabase, userId) {
+  const { data: profile, error } = await supabase
+    .from("employee_profiles")
+    .select("user_id, staff_code, employee_name, employment_status")
+    .eq("user_id", Number(userId))
+    .maybeSingle();
+
+  if (error) {
+    throw new Error("従業員状態の確認に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  if (!profile) {
+    throw new Error("従業員プロフィールが見つかりません。管理画面で確認してください。");
+  }
+
+  if (profile.employment_status !== "active") {
+    throw new Error("あなたはDiscordから出勤数を操作できません。店長に確認してください。");
+  }
+
+  return profile;
+}
+
 async function syncCard(req, userId) {
   const origin = new URL(req.url).origin;
   const syncRes = await fetch(`${origin}/api/sync-card/${userId}`, {
@@ -483,6 +505,8 @@ async function processStaffAction({ req, userId, action, actedBy }) {
   if (!["add", "remove"].includes(action)) {
     throw new Error("操作内容が正しくありません。もう一度お試しください。");
   }
+
+  await assertActiveStaffEmployeeByUserId(supabase, userId);
 
   const diff = action === "add" ? 1 : -1;
 

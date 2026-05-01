@@ -1,248 +1,261 @@
 'use client'
 
 export default function AdminMenuClient() {
-  const cardStyle = {
-    background: '#fffaf8',
-    border: '1px solid #f0d9d2',
+  const menuItems = [
+    {
+      title: 'スタンプカード管理',
+      icon: '🌿',
+      description: '新規発行、検索、氏名登録、スタンプ更新を行います。',
+      href: '/admin/stamp',
+      buttonLabel: 'スタンプカード管理を開く',
+    },
+    {
+      title: 'ビンゴカード管理',
+      icon: '🎯',
+      description: '新規発行、検索、氏名登録、番号開放、商品マッピングを行います。',
+      href: '/admin/bingo',
+      buttonLabel: 'ビンゴカード管理を開く',
+    },
+    {
+      title: '従業員管理',
+      icon: '📇',
+      description: '従業員カード管理、Discord出勤履歴、給与管理はこちらから進みます。',
+      href: '/admin/staff',
+      buttonLabel: '従業員管理を開く',
+    },
+  ]
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.brandRow}>
+            <div style={styles.brandMark}>🦌</div>
+            <div>
+              <h1 style={styles.title}>-Bistro-Bambi</h1>
+              <p style={styles.subtitle}>
+                管理メニューです。使用する管理画面を選んでください。
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <section style={styles.menuGrid}>
+          {menuItems.map((item) => (
+            <a key={item.href} href={item.href} style={styles.menuCard}>
+              <div>
+                <div style={styles.iconBox}>{item.icon}</div>
+                <h2 style={styles.cardTitle}>{item.title}</h2>
+                <p style={styles.cardDescription}>{item.description}</p>
+              </div>
+
+              <div style={styles.cardButtonPrimary}>
+                {item.buttonLabel}
+              </div>
+            </a>
+          ))}
+        </section>
+
+        <section style={styles.widePanel}>
+          <div style={styles.panelContent}>
+            <div>
+              <div style={styles.panelBadge}>SYSTEM</div>
+              <h2 style={styles.panelTitle}>システム設定</h2>
+              <p style={styles.panelDescription}>
+                システム全体の設定、店舗設定、初期化機能はこちらから進めます。
+              </p>
+            </div>
+
+            <div style={styles.buttonGroup}>
+              <a href="/admin/system" style={styles.secondaryButton}>
+                システム設定へ
+              </a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+const theme = {
+  bg: '#eef2ec',
+  bg2: '#f7faf5',
+  panel: '#fbfdf9',
+  panel2: '#f3f7ef',
+  border: '#d8e3d2',
+  border2: '#c4d3bd',
+  text: '#263427',
+  muted: '#6c7b67',
+  deep: '#2f4a34',
+  green: '#52785a',
+  pale: '#e6efe1',
+  white: '#ffffff',
+}
+
+const styles = {
+  page: {
+    minHeight: '100vh',
+    background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
+    padding: '24px',
+    color: theme.text,
+  },
+  container: {
+    maxWidth: '1540px',
+    margin: '0 auto',
+  },
+  header: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '24px',
+    padding: '28px 32px',
+    marginBottom: '24px',
+    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+  },
+  brandRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '18px',
+  },
+  brandMark: {
+    width: '64px',
+    height: '64px',
     borderRadius: '20px',
-    padding: '32px 36px',
-    boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
+    background: theme.pale,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '34px',
+    border: `1px solid ${theme.border2}`,
+  },
+  title: {
+    fontSize: '42px',
+    fontWeight: 950,
+    color: theme.deep,
+    margin: 0,
+    letterSpacing: '-0.02em',
+  },
+  subtitle: {
+    margin: '10px 0 0',
+    fontSize: '20px',
+    color: theme.muted,
+    lineHeight: 1.6,
+  },
+  menuGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+    gap: '20px',
+    alignItems: 'stretch',
+  },
+  menuCard: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '22px',
+    padding: '24px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
     minHeight: '280px',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-  }
-
-  const titleStyle = {
-    fontSize: '44px',
-    fontWeight: 900,
-    color: '#7a4b3a',
+    textDecoration: 'none',
+    color: theme.text,
+  },
+  iconBox: {
+    width: '62px',
+    height: '62px',
+    borderRadius: '18px',
+    background: theme.pale,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '31px',
+    border: `1px solid ${theme.border2}`,
+    marginBottom: '18px',
+  },
+  cardTitle: {
+    fontSize: '28px',
+    fontWeight: 950,
+    color: theme.deep,
     margin: 0,
-  }
-
-  const sectionTitleStyle = {
-    fontSize: '34px',
+    lineHeight: 1.35,
+  },
+  cardDescription: {
+    fontSize: '17px',
+    color: theme.muted,
+    lineHeight: 1.75,
+    margin: '14px 0 0',
+  },
+  cardButtonPrimary: {
+    marginTop: '24px',
+    padding: '13px 17px',
+    fontSize: '15px',
     fontWeight: 900,
-    color: '#7a4b3a',
-    margin: 0,
-    lineHeight: 1.3,
-  }
-
-  const descriptionStyle = {
-    fontSize: '22px',
-    color: '#8a6457',
-    lineHeight: 1.8,
-    margin: '18px 0 0 0',
-  }
-
-  const primaryButtonStyle = {
-    padding: '18px 28px',
-    fontSize: '20px',
-    fontWeight: 800,
-    borderRadius: '16px',
+    borderRadius: '12px',
     border: 'none',
-    background: '#d98b7b',
-    color: '#fff',
-    textDecoration: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0 6px 16px rgba(217, 139, 123, 0.25)',
-    width: 'fit-content',
-  }
-
-  const subButtonStyle = {
-    padding: '18px 28px',
-    fontSize: '20px',
-    fontWeight: 800,
-    borderRadius: '16px',
-    border: '1px solid #e6c6bb',
-    background: '#fff',
-    color: '#7a4b3a',
-    textDecoration: 'none',
+    background: theme.green,
+    color: theme.white,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     width: 'fit-content',
-  }
-
-  const buttonGroupStyle = {
+    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+  },
+  widePanel: {
+    marginTop: '20px',
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '22px',
+    padding: '24px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  panelContent: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    gap: '24px',
+    flexWrap: 'wrap',
+  },
+  panelBadge: {
+    display: 'inline-flex',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.pale,
+    border: `1px solid ${theme.border2}`,
+    color: theme.deep,
+    fontSize: '12px',
+    fontWeight: 950,
+    marginBottom: '10px',
+    letterSpacing: '0.08em',
+  },
+  panelTitle: {
+    fontSize: '30px',
+    fontWeight: 950,
+    color: theme.deep,
+    margin: 0,
+  },
+  panelDescription: {
+    fontSize: '17px',
+    color: theme.muted,
+    lineHeight: 1.75,
+    margin: '12px 0 0',
+    maxWidth: '920px',
+  },
+  buttonGroup: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '12px',
-    marginTop: '28px',
-  }
-
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(180deg, #fff8f4 0%, #fffdfb 100%)',
-        padding: '14px',
-        color: '#5f4137',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: '1540px',
-          margin: '0 auto',
-        }}
-      >
-        <div
-          style={{
-            background: '#fff6f1',
-            border: '1px solid #f2ddd5',
-            borderRadius: '28px',
-            padding: '32px 40px',
-            marginBottom: '38px',
-            boxShadow: '0 12px 30px rgba(201, 157, 145, 0.10)',
-          }}
-        >
-          <h1 style={titleStyle}>-Bistro-Bambi</h1>
-          <p
-            style={{
-              margin: '18px 0 0 0',
-              fontSize: '26px',
-              color: '#9a6b5b',
-              lineHeight: 1.7,
-            }}
-          >
-            管理メニューです。使用するカード管理画面を選んでください。
-          </p>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: '28px',
-            alignItems: 'stretch',
-          }}
-        >
-          <div style={cardStyle}>
-            <div>
-              <h2 style={sectionTitleStyle}>スタンプカード管理</h2>
-              <p style={descriptionStyle}>
-                新規発行、検索、氏名登録、スタンプ更新を行います。
-              </p>
-            </div>
-
-            <a href="/admin/stamp" style={primaryButtonStyle}>
-              スタンプカード管理を開く
-            </a>
-          </div>
-
-          <div style={cardStyle}>
-            <div>
-              <h2 style={sectionTitleStyle}>ビンゴカード管理</h2>
-              <p style={descriptionStyle}>
-                新規発行、検索、氏名登録、番号開放、商品マッピングを行います。
-              </p>
-            </div>
-
-            <a href="/admin/bingo" style={primaryButtonStyle}>
-              ビンゴカード管理を開く
-            </a>
-          </div>
-
-          <div style={cardStyle}>
-            <div>
-              <h2 style={sectionTitleStyle}>従業員管理</h2>
-              <p style={descriptionStyle}>
-                従業員カード管理、出勤数更新、月末リセットはこちらから進みます。
-              </p>
-            </div>
-
-            <a href="/admin/staff" style={primaryButtonStyle}>
-              従業員管理を開く
-            </a>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: '38px',
-            background: '#fffaf8',
-            border: '1px solid #f0d9d2',
-            borderRadius: '20px',
-            padding: '32px 36px',
-            boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
-          }}
-        >
-          <h2
-            style={{
-              fontSize: '34px',
-              fontWeight: 900,
-              color: '#7a4b3a',
-              margin: 0,
-            }}
-          >
-            給与管理
-          </h2>
-
-          <p
-            style={{
-              fontSize: '22px',
-              color: '#8a6457',
-              lineHeight: 1.8,
-              margin: '18px 0 0 0',
-            }}
-          >
-            従業員カードの出勤履歴をもとに、給与プレビュー、金庫・牧場利益、月次一覧、単価ルールを管理します。
-          </p>
-
-          <div style={buttonGroupStyle}>
-            <a href="/admin/staff/payroll" style={primaryButtonStyle}>
-              給与管理を開く
-            </a>
-
-            <a href="/admin/staff/payroll/monthly" style={subButtonStyle}>
-              月次給与一覧
-            </a>
-
-            <a href="/admin/staff/payroll/rate-rules" style={subButtonStyle}>
-              単価ルール管理
-            </a>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: '38px',
-            background: '#fffaf8',
-            border: '1px solid #f0d9d2',
-            borderRadius: '20px',
-            padding: '32px 36px',
-            boxShadow: '0 8px 24px rgba(194, 144, 128, 0.10)',
-          }}
-        >
-          <h2
-            style={{
-              fontSize: '34px',
-              fontWeight: 900,
-              color: '#7a4b3a',
-              margin: 0,
-            }}
-          >
-            システム設定
-          </h2>
-
-          <p
-            style={{
-              fontSize: '22px',
-              color: '#8a6457',
-              lineHeight: 1.8,
-              margin: '18px 0 28px 0',
-            }}
-          >
-            システム全体の設定や初期化機能はこちらから進めます。
-          </p>
-
-          <a href="/admin/system" style={subButtonStyle}>
-            システム設定へ
-          </a>
-        </div>
-      </div>
-    </div>
-  )
+    gap: '10px',
+  },
+  secondaryButton: {
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 }
