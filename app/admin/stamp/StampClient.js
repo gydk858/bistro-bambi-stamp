@@ -1,12 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const SUPABASE_PUBLIC_CARD_BASE =
   'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live'
 
 export default function StampClient() {
+  const searchParams = useSearchParams()
+
   const [userId, setUserId] = useState('')
   const [cardRecord, setCardRecord] = useState(null)
   const [message, setMessage] = useState('')
@@ -16,9 +19,10 @@ export default function StampClient() {
   const [nameMessage, setNameMessage] = useState('')
   const [previewKey, setPreviewKey] = useState(Date.now())
   const [copiedFixed, setCopiedFixed] = useState(false)
+  const [autoSearchDone, setAutoSearchDone] = useState(false)
 
   const normalizeToHalfWidthNumber = (value) => {
-    return value
+    return String(value || '')
       .replace(/[０-９]/g, (s) =>
         String.fromCharCode(s.charCodeAt(0) - 0xfee0)
       )
@@ -54,6 +58,41 @@ export default function StampClient() {
     return syncJson
   }
 
+  const fetchCurrentStore = async () => {
+    const { data: setting, error: settingError } = await supabase
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'current_store_code')
+      .maybeSingle()
+
+    if (settingError) {
+      throw new Error(`店舗設定の取得に失敗しました: ${settingError.message}`)
+    }
+
+    const currentStoreCode = setting?.setting_value
+
+    if (!currentStoreCode) {
+      throw new Error('current_store_code が設定されていません')
+    }
+
+    const { data: storeData, error: storeError } = await supabase
+      .from('stores')
+      .select('store_id, store_code, store_name, status')
+      .eq('store_code', currentStoreCode)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (storeError) {
+      throw new Error(`店舗情報の取得に失敗しました: ${storeError.message}`)
+    }
+
+    if (!storeData) {
+      throw new Error('現在の対象店舗が見つかりません')
+    }
+
+    return storeData
+  }
+
   const fetchStampCardByUserId = async (targetUserId) => {
     const { data, error } = await supabase
       .from('v_stamp_cards_current')
@@ -74,12 +113,14 @@ export default function StampClient() {
     return data
   }
 
-  const searchUser = async () => {
+  const searchUserById = async (targetUserId, fromAutoSearch = false) => {
     setMessage('')
     setNameMessage('')
     setCopiedFixed(false)
 
-    if (!userId) {
+    const normalized = normalizeToHalfWidthNumber(targetUserId)
+
+    if (!normalized) {
       setCardRecord(null)
       setEditName('')
       setMessage('番号を入力してください')
@@ -87,15 +128,20 @@ export default function StampClient() {
     }
 
     try {
-      const data = await fetchStampCardByUserId(userId)
+      const data = await fetchStampCardByUserId(normalized)
 
       await syncCardImage(data.user_id)
 
       const refreshedData = await fetchStampCardByUserId(data.user_id)
 
+      setUserId(String(refreshedData.user_id))
       setCardRecord(refreshedData)
       setEditName(refreshedData.display_name || '')
-      setMessage('カードを表示しました')
+      setMessage(
+        fromAutoSearch
+          ? `カード一覧から ${refreshedData.user_id} を表示しました`
+          : 'カードを表示しました'
+      )
       refreshPreview()
     } catch (error) {
       setCardRecord(null)
@@ -106,6 +152,20 @@ export default function StampClient() {
     }
   }
 
+  useEffect(() => {
+    const queryUserId = normalizeToHalfWidthNumber(searchParams.get('user_id'))
+
+    if (!queryUserId) return
+    if (autoSearchDone) return
+
+    setAutoSearchDone(true)
+    searchUserById(queryUserId, true)
+  }, [searchParams, autoSearchDone])
+
+  const searchUser = async () => {
+    await searchUserById(userId, false)
+  }
+
   const createCard = async () => {
     setCreateMessage('')
     setMessage('')
@@ -114,10 +174,12 @@ export default function StampClient() {
 
     try {
       const now = new Date().toISOString()
+      const currentStore = await fetchCurrentStore()
 
       const { data: createdUser, error: createUserError } = await supabase
         .from('users')
         .insert({
+          store_id: currentStore.store_id,
           display_name: '未登録',
           status: 'active',
           updated_at: now,
@@ -332,20 +394,24 @@ export default function StampClient() {
             <div style={styles.brandMark}>🌿</div>
             <div>
               <h1 style={styles.title}>-Bistro-Bambi</h1>
-              <p style={styles.subtitle}>スタンプカード管理</p>
+              <p style={styles.subtitle}>通常スタンプ カード操作</p>
               <p style={styles.headerDescription}>
-                通常スタンプカードの発行、検索、氏名登録、スタンプ更新を行います。
+                通常スタンプカードを1枚ずつ検索し、氏名登録やスタンプ数の操作を行います。
               </p>
             </div>
           </div>
 
           <nav style={styles.nav}>
+            <a href="/admin/stamp/customers" style={styles.navButton}>
+              顧客一覧
+            </a>
+
             <a href="/admin" style={styles.navButton}>
               管理メニュー
             </a>
 
             <a href="/admin/stamp/manage" style={styles.navButton}>
-              スタンプ管理
+              イベント管理
             </a>
 
             <button onClick={logout} style={styles.navButton}>

@@ -1,24 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function BingoManageClient() {
-  const [targetUserId, setTargetUserId] = useState('')
-  const [targetNumber, setTargetNumber] = useState('')
-  const [closeMessage, setCloseMessage] = useState('')
-
   const [resetMessage, setResetMessage] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
 
   const [archiveMessage, setArchiveMessage] = useState('')
   const [archiveLoading, setArchiveLoading] = useState(false)
 
-  const normalizeToHalfWidthNumber = (value) => {
-    return value
-      .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
-      .replace(/[^0-9]/g, '')
-  }
+  const [archivedCards, setArchivedCards] = useState([])
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [restoreLoadingCardId, setRestoreLoadingCardId] = useState(null)
+  const [restoreMessage, setRestoreMessage] = useState('')
+
+  useEffect(() => {
+    fetchArchivedCards()
+  }, [])
 
   const syncBingoCardImage = async (targetUserId) => {
     const syncRes = await fetch(`/api/sync-bingo-card/${targetUserId}`, {
@@ -35,70 +34,40 @@ export default function BingoManageClient() {
     return syncJson
   }
 
-  const handleCloseNumber = async () => {
-    setCloseMessage('')
-
-    const userIdNum = Number(targetUserId)
-    const numberNum = Number(targetNumber)
-
-    if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
-      setCloseMessage('対象のIDを入力してください')
-      return
-    }
-
-    if (!Number.isFinite(numberNum) || numberNum <= 0) {
-      setCloseMessage('閉じる番号を入力してください')
-      return
-    }
-
-    const { data: card, error: cardError } = await supabase
-      .from('v_bingo_cards_current')
-      .select('*')
-      .eq('user_id', userIdNum)
-      .eq('program_code', 'bingo_regular')
-      .eq('card_status', 'active')
-      .maybeSingle()
-
-    if (cardError || !card) {
-      setCloseMessage('対象のビンゴカードが見つかりません')
-      return
-    }
-
-    const { data, error } = await supabase.rpc('unmark_bingo_number', {
-      p_card_id: card.card_id,
-      p_number: numberNum,
-      p_acted_by: 'admin_ui',
-      p_note: 'ビンゴ管理画面から番号を閉じる',
-    })
-
-    if (error || !data || data.length === 0) {
-      setCloseMessage('番号を閉じる処理に失敗しました')
-      return
-    }
-
-    const result = data[0]
+  const fetchArchivedCards = async () => {
+    setArchivedLoading(true)
 
     try {
-      await syncBingoCardImage(userIdNum)
-    } catch (syncError) {
-      setCloseMessage(
-        syncError instanceof Error
-          ? syncError.message
-          : '画像同期に失敗しました'
+      const { data, error } = await supabase.rpc(
+        'list_archived_regular_bingo_cards'
       )
-      return
-    }
 
-    if (result.already_unmarked) {
-      setCloseMessage(`${numberNum}番はすでに閉じています`)
-    } else {
-      setCloseMessage(`ID ${userIdNum} の ${numberNum}番を閉じました`)
+      if (error) {
+        throw error
+      }
+
+      setArchivedCards(Array.isArray(data) ? data : [])
+    } catch (error) {
+      setRestoreMessage(
+        error instanceof Error
+          ? `アーカイブ済みビンゴカード一覧の取得に失敗しました: ${error.message}`
+          : 'アーカイブ済みビンゴカード一覧の取得に失敗しました'
+      )
+      setArchivedCards([])
+    } finally {
+      setArchivedLoading(false)
     }
   }
 
   const handleResetAll = async () => {
     const ok = window.confirm(
-      '本当に全てのビンゴカードをリセットしますか？この操作は元に戻せません。'
+      [
+        '本当に通常ビンゴカードをすべてリセットしますか？',
+        '',
+        'この操作で、通常ビンゴカードの開放状態は初期化されます。',
+        'イベントは継続したまま、中身だけ初期化されます。',
+        'この操作は元に戻せません。',
+      ].join('\n')
     )
 
     if (!ok) return
@@ -107,25 +76,25 @@ export default function BingoManageClient() {
     setResetMessage('')
 
     try {
-      const { data, error } = await supabase.rpc('reset_all_bingo_cards', {
+      const { data, error } = await supabase.rpc('reset_regular_bingo_cards', {
         p_acted_by: 'admin_ui',
-        p_note: 'ビンゴ管理画面から全ビンゴカード一括リセット',
+        p_note: 'ビンゴ管理画面から通常ビンゴカード一括リセット',
       })
 
       if (error || !data || data.length === 0) {
-        setResetMessage('全ビンゴカードのリセットに失敗しました')
+        setResetMessage('通常ビンゴカードのリセットに失敗しました')
         return
       }
 
       const result = data[0]
       setResetMessage(
-        `全ビンゴカードをリセットしました（カード ${result.affected_cards} 件 / マス ${result.affected_cells} 件）`
+        `通常ビンゴカードをリセットしました（カード ${result.affected_cards} 件 / マス ${result.affected_cells} 件）`
       )
     } catch (error) {
       setResetMessage(
         error instanceof Error
           ? error.message
-          : '全ビンゴカードのリセットに失敗しました'
+          : '通常ビンゴカードのリセットに失敗しました'
       )
     } finally {
       setResetLoading(false)
@@ -134,7 +103,13 @@ export default function BingoManageClient() {
 
   const handleArchiveAll = async () => {
     const ok = window.confirm(
-      '現在のビンゴイベントのカードをアーカイブしますか？\nアーカイブ後は通常画面や bot からは表示されなくなります。'
+      [
+        '現在の通常ビンゴイベントのカードをアーカイブしますか？',
+        '',
+        '対象は通常ビンゴカードのみです。',
+        'アーカイブ後は通常画面や bot からは表示されなくなります。',
+        'この操作は元に戻せません。',
+      ].join('\n')
     )
 
     if (!ok) return
@@ -143,10 +118,13 @@ export default function BingoManageClient() {
     setArchiveMessage('')
 
     try {
-      const { data, error } = await supabase.rpc('archive_active_bingo_cards', {
-        p_acted_by: 'admin_ui',
-        p_note: '管理画面からビンゴイベント終了',
-      })
+      const { data, error } = await supabase.rpc(
+        'archive_active_regular_bingo_cards',
+        {
+          p_acted_by: 'admin_ui',
+          p_note: '管理画面から通常ビンゴイベント終了',
+        }
+      )
 
       if (error || !data || data.length === 0) {
         setArchiveMessage('アーカイブに失敗しました')
@@ -155,14 +133,92 @@ export default function BingoManageClient() {
 
       const result = data[0]
       setArchiveMessage(
-        `現在のビンゴカードをアーカイブしました（${result.affected_cards}件）`
+        `現在の通常ビンゴカードをアーカイブしました（${result.affected_cards}件）`
       )
+
+      await fetchArchivedCards()
     } catch (error) {
       setArchiveMessage(
         error instanceof Error ? error.message : 'アーカイブに失敗しました'
       )
     } finally {
       setArchiveLoading(false)
+    }
+  }
+
+  const handleRestore = async (card) => {
+    const ok = window.confirm(
+      [
+        'この通常ビンゴカードを復元しますか？',
+        '',
+        `カード番号: ${card.user_id}`,
+        `Card ID: ${card.card_id}`,
+        `氏名: ${card.display_name || '未登録'}`,
+        '',
+        '復元後はビンゴカード管理画面で検索できるようになります。',
+      ].join('\n')
+    )
+
+    if (!ok) return
+
+    setRestoreLoadingCardId(card.card_id)
+    setRestoreMessage('')
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'restore_regular_bingo_card',
+        {
+          p_card_id: Number(card.card_id),
+          p_acted_by: 'admin_ui',
+          p_note: '管理画面から通常ビンゴカードを復元',
+        }
+      )
+
+      if (error || !data || data.length === 0) {
+        setRestoreMessage('復元に失敗しました')
+        return
+      }
+
+      const restored = data[0]
+      setRestoreMessage(
+        `カード番号 ${restored.user_id} / Card ID ${restored.card_id} を復元しました`
+      )
+
+      try {
+        await syncBingoCardImage(restored.user_id)
+      } catch {
+        // 復元自体は成功しているため、画像同期失敗だけで処理失敗にはしない
+      }
+
+      await fetchArchivedCards()
+    } catch (error) {
+      setRestoreMessage(
+        error instanceof Error ? error.message : '復元に失敗しました'
+      )
+    } finally {
+      setRestoreLoadingCardId(null)
+    }
+  }
+
+  const formatNumber = (value) => {
+    if (value === null || value === undefined || value === '') return '0'
+    return Number(value).toLocaleString()
+  }
+
+  const formatDateTime = (value) => {
+    if (!value) return '-'
+
+    try {
+      return new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(value))
+    } catch {
+      return String(value)
     }
   }
 
@@ -174,16 +230,25 @@ export default function BingoManageClient() {
             <div style={styles.brandMark}>🎯</div>
             <div>
               <h1 style={styles.title}>-Bistro-Bambi</h1>
-              <p style={styles.subtitle}>ビンゴ管理</p>
+              <p style={styles.subtitle}>ビンゴ イベント管理</p>
               <p style={styles.headerDescription}>
-                番号の取り消し、全体リセット、イベント終了時のアーカイブを行います。
+                通常ビンゴカードの一括リセット、イベント終了時のアーカイブ、復元を行います。
               </p>
             </div>
           </div>
 
           <nav style={styles.nav}>
-            <a href="/admin/bingo" style={styles.navButton}>ビンゴ画面に戻る</a>
-            <a href="/admin" style={styles.navButton}>管理メニュー</a>
+            <a href="/admin/bingo" style={styles.navButton}>
+              カード操作に戻る
+            </a>
+
+            <a href="/admin/bingo/customers" style={styles.navButton}>
+              顧客一覧
+            </a>
+
+            <a href="/admin" style={styles.navButton}>
+              管理メニュー
+            </a>
           </nav>
         </header>
 
@@ -191,57 +256,18 @@ export default function BingoManageClient() {
           <div style={styles.warningBadge}>IMPORTANT</div>
           <h2 style={styles.warningTitle}>操作前に確認してください</h2>
           <p style={styles.warningText}>
-            この画面の操作は、ビンゴカード全体または指定カードに影響します。
-            リセットやアーカイブは運用タイミングを確認してから実行してください。
+            この画面の一括操作は、通常ビンゴカードに影響します。
+            個別の番号を開く・閉じる操作は、ビンゴカード画面で対象カードを確認しながら行ってください。
           </p>
         </section>
 
         <div style={styles.grid}>
           <section style={styles.panel}>
-            <div style={styles.iconBox}>↩</div>
-            <h2 style={styles.sectionTitle}>指定番号を閉じる</h2>
-
-            <p style={styles.description}>
-              ID と番号を指定して、間違えて開けたマスを閉じます。
-            </p>
-
-            <div style={styles.formGrid}>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="対象IDを入力"
-                value={targetUserId}
-                onChange={(e) => setTargetUserId(normalizeToHalfWidthNumber(e.target.value))}
-                style={styles.input}
-              />
-
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="閉じる番号を入力"
-                value={targetNumber}
-                onChange={(e) => setTargetNumber(normalizeToHalfWidthNumber(e.target.value))}
-                style={styles.input}
-              />
-
-              <button onClick={handleCloseNumber} style={styles.dangerButton}>
-                番号を閉じる
-              </button>
-            </div>
-
-            {closeMessage && (
-              <div style={styles.messageBox}>
-                {closeMessage}
-              </div>
-            )}
-          </section>
-
-          <section style={styles.panel}>
             <div style={styles.iconBox}>↺</div>
-            <h2 style={styles.sectionTitle}>全ビンゴカード一括リセット</h2>
+            <h2 style={styles.sectionTitle}>通常ビンゴカード一括リセット</h2>
 
             <p style={styles.description}>
-              すべてのビンゴカードの開放状態を初期化します。
+              通常ビンゴカードの開放状態を初期化します。
               イベントは継続したまま、中身だけ初期化したい場合に使います。
             </p>
 
@@ -253,7 +279,7 @@ export default function BingoManageClient() {
                 ...(resetLoading ? styles.disabledButton : {}),
               }}
             >
-              {resetLoading ? 'リセット中...' : '全ビンゴカードをリセット'}
+              {resetLoading ? 'リセット中...' : '通常ビンゴカードをリセット'}
             </button>
 
             {resetMessage && (
@@ -265,10 +291,10 @@ export default function BingoManageClient() {
 
           <section style={styles.panel}>
             <div style={styles.iconBox}>□</div>
-            <h2 style={styles.sectionTitle}>現在イベントのカードをアーカイブ</h2>
+            <h2 style={styles.sectionTitle}>通常ビンゴイベントをアーカイブ</h2>
 
             <p style={styles.description}>
-              現在のビンゴイベントを終了し、現役カードをすべてアーカイブします。
+              現在の通常ビンゴイベントを終了し、現役の通常ビンゴカードをアーカイブします。
               アーカイブ後は通常画面・bot・画像生成では表示されません。
             </p>
 
@@ -280,7 +306,7 @@ export default function BingoManageClient() {
                 ...(archiveLoading ? styles.disabledDangerButton : {}),
               }}
             >
-              {archiveLoading ? 'アーカイブ中...' : '現在イベントを終了してアーカイブ'}
+              {archiveLoading ? 'アーカイブ中...' : '通常ビンゴイベントを終了してアーカイブ'}
             </button>
 
             {archiveMessage && (
@@ -290,6 +316,102 @@ export default function BingoManageClient() {
             )}
           </section>
         </div>
+
+        <section style={styles.restorePanel}>
+          <div style={styles.restoreHeader}>
+            <div>
+              <div style={styles.restoreBadge}>ARCHIVED BINGO CARDS</div>
+              <h2 style={styles.sectionTitle}>アーカイブ済み通常ビンゴカード</h2>
+              <p style={styles.description}>
+                アーカイブ済みの通常ビンゴカードを確認し、必要なカードだけ復元できます。
+                復元時に同じカード番号の有効カードが存在する場合は、重複防止のため復元できません。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchArchivedCards}
+              disabled={archivedLoading}
+              style={{
+                ...styles.secondaryButton,
+                ...(archivedLoading ? styles.disabledButton : {}),
+              }}
+            >
+              {archivedLoading ? '読込中...' : '一覧更新'}
+            </button>
+          </div>
+
+          {restoreMessage && (
+            <div style={styles.messageBox}>
+              {restoreMessage}
+            </div>
+          )}
+
+          {archivedLoading ? (
+            <div style={styles.emptyBox}>
+              アーカイブ済みビンゴカードを読み込み中です...
+            </div>
+          ) : archivedCards.length === 0 ? (
+            <div style={styles.emptyBox}>
+              アーカイブ済みの通常ビンゴカードはありません。
+            </div>
+          ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>カード番号</th>
+                    <th style={styles.th}>Card ID</th>
+                    <th style={styles.th}>氏名</th>
+                    <th style={styles.th}>ビンゴ状況</th>
+                    <th style={styles.th}>メモ</th>
+                    <th style={styles.th}>アーカイブ日時</th>
+                    <th style={styles.th}>操作</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {archivedCards.map((card) => {
+                    const isRestoring = restoreLoadingCardId === card.card_id
+
+                    return (
+                      <tr key={card.card_id}>
+                        <td style={styles.tdStrong}>{card.user_id}</td>
+                        <td style={styles.td}>{card.card_id}</td>
+                        <td style={styles.td}>{card.display_name || '未登録'}</td>
+                        <td style={styles.tdCenter}>
+                          {formatNumber(card.current_bingo_count)} ビンゴ
+                          <div style={styles.userSub}>
+                            {card.grid_size} × {card.grid_size}
+                          </div>
+                        </td>
+                        <td style={styles.tdMemo}>
+                          {card.customer_note || '-'}
+                        </td>
+                        <td style={styles.td}>
+                          {formatDateTime(card.archived_at)}
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            type="button"
+                            onClick={() => handleRestore(card)}
+                            disabled={isRestoring}
+                            style={{
+                              ...styles.primaryMiniButton,
+                              ...(isRestoring ? styles.disabledButton : {}),
+                            }}
+                          >
+                            {isRestoring ? '復元中' : '復元'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   )
@@ -320,7 +442,7 @@ const styles = {
     padding: '24px',
   },
   container: {
-    maxWidth: '1180px',
+    maxWidth: '1280px',
     margin: '0 auto',
   },
   header: {
@@ -426,6 +548,7 @@ const styles = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
     gap: '18px',
     alignItems: 'stretch',
+    marginBottom: '18px',
   },
   panel: {
     background: theme.panel,
@@ -433,6 +556,33 @@ const styles = {
     borderRadius: '20px',
     padding: '24px',
     boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  restorePanel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '24px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  restoreHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '16px',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
+  },
+  restoreBadge: {
+    display: 'inline-flex',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.pale,
+    border: `1px solid ${theme.border2}`,
+    color: theme.deep,
+    fontSize: '12px',
+    fontWeight: 950,
+    marginBottom: '10px',
+    letterSpacing: '0.08em',
   },
   iconBox: {
     width: '58px',
@@ -461,22 +611,6 @@ const styles = {
     lineHeight: 1.8,
     margin: '14px 0 20px',
   },
-  formGrid: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  input: {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '13px 14px',
-    fontSize: '16px',
-    borderRadius: '12px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.text,
-    outline: 'none',
-  },
   primaryButton: {
     padding: '14px 18px',
     fontSize: '16px',
@@ -487,6 +621,20 @@ const styles = {
     color: theme.white,
     cursor: 'pointer',
     boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+  },
+  secondaryButton: {
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   disabledButton: {
     opacity: 0.65,
@@ -517,5 +665,91 @@ const styles = {
     color: theme.deep,
     fontWeight: 900,
     lineHeight: 1.7,
+  },
+  emptyBox: {
+    background: theme.white,
+    border: `1px dashed ${theme.border2}`,
+    borderRadius: '16px',
+    padding: '38px 24px',
+    textAlign: 'center',
+    color: theme.muted,
+    fontSize: '16px',
+    lineHeight: 1.8,
+  },
+  tableWrap: {
+    overflowX: 'auto',
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '16px',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    minWidth: '980px',
+  },
+  th: {
+    background: theme.pale,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '13px 14px',
+    borderBottom: `1px solid ${theme.border2}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  td: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.text,
+    verticalAlign: 'top',
+  },
+  tdStrong: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 900,
+    verticalAlign: 'top',
+  },
+  tdCenter: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    textAlign: 'center',
+    fontWeight: 900,
+    verticalAlign: 'top',
+  },
+  tdMemo: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    fontSize: '14px',
+    color: theme.text,
+    verticalAlign: 'top',
+    minWidth: '180px',
+    maxWidth: '280px',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+  },
+  userSub: {
+    marginTop: '4px',
+    fontSize: '11px',
+    color: theme.muted,
+    fontWeight: 800,
+  },
+  primaryMiniButton: {
+    padding: '9px 12px',
+    fontSize: '13px',
+    fontWeight: 900,
+    borderRadius: '10px',
+    border: 'none',
+    background: theme.green,
+    color: theme.white,
+    cursor: 'pointer',
+    textDecoration: 'none',
   },
 }

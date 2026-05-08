@@ -87,31 +87,28 @@ export default function StaffManageClient() {
     const warnings = latestStatus.warning_messages || []
 
     if (!latestStatus.can_reset) {
-      const okDespiteWarnings = window.confirm(
+      setMessage(
         [
-          'リセット前チェックで未完了項目があります。',
+          'リセット前チェックで未完了項目があるため、月末一括リセットは実行できません。',
           '',
           ...warnings.map((warning) => `・${warning}`),
-          '',
-          'このままリセットすると、給与確認前のデータを見落とす可能性があります。',
-          'それでもリセットしますか？',
         ].join('\n')
       )
-
-      if (!okDespiteWarnings) return
+      return
     }
 
     const finalOk = window.confirm(
       [
-        '本当に全従業員カードの出勤数を 0 に戻しますか？',
+        '本当に在籍中従業員カードの出勤数を 0 に戻しますか？',
         '',
         `対象: ${latestStatus.target_year}年${latestStatus.target_month}月`,
         `店舗: ${latestStatus.store_name}`,
-        `従業員カード: ${latestStatus.staff_card_count}件`,
+        `在籍中従業員カード: ${latestStatus.staff_card_count}件`,
         `現在スタンプ合計: ${latestStatus.current_stamp_total}`,
         '',
         'この操作でカード上の現在スタンプ数は0になります。',
         '出勤履歴・給与明細・給与集計は削除されません。',
+        '退職済み従業員カードはリセット対象外です。',
       ].join('\n')
     )
 
@@ -121,46 +118,30 @@ export default function StaffManageClient() {
     setIsResetting(true)
 
     try {
-      const { data: activeCards, error: fetchError } = await supabase
-        .from('v_staff_stamp_cards_current')
-        .select('card_id, staff_code')
-        .eq('program_code', 'stamp_staff_attendance')
-        .eq('card_status', 'active')
-
-      if (fetchError) {
-        throw new Error(`従業員カード一覧の取得に失敗しました: ${fetchError.message}`)
-      }
-
-      if (!activeCards || activeCards.length === 0) {
-        setMessage('リセット対象の従業員カードはありません')
-        return
-      }
-
-      let resetCount = 0
-
-      for (const card of activeCards) {
-        const { data, error } = await supabase.rpc('reset_stamp_card', {
-          p_card_id: card.card_id,
+      const { data, error } = await supabase.rpc(
+        'reset_active_staff_attendance_cards_for_month',
+        {
+          p_target_year: Number(targetYear),
+          p_target_month: Number(targetMonth),
           p_acted_by: 'admin_staff_manage_ui',
-          p_reason: '管理画面から全従業員カード一括リセット',
-        })
-
-        if (error || !data || data.length === 0) {
-          throw new Error(
-            `従業員カード ${card.staff_code} のリセットに失敗しました`
-          )
+          p_reason: `${Number(targetYear)}年${Number(targetMonth)}月 管理画面から在籍中従業員カード月末一括リセット`,
         }
+      )
 
-        resetCount += 1
+      if (error) {
+        throw new Error(error.message)
       }
 
-      setMessage(`全従業員カードをリセットしました（${resetCount}件）`)
+      const result = Array.isArray(data) && data.length > 0 ? data[0] : null
+      const affectedCards = result?.affected_cards ?? 0
+
+      setMessage(`在籍中従業員カードをリセットしました（${affectedCards}件）`)
       await fetchResetStatus(targetYear, targetMonth)
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : '全従業員カードのリセットに失敗しました'
+          : '在籍中従業員カードのリセットに失敗しました'
       )
     } finally {
       setIsResetting(false)
@@ -177,14 +158,6 @@ export default function StaffManageClient() {
     return Number(value).toLocaleString()
   }
 
-  const getStatusBadgeStyle = (ok) => {
-    return ok ? styles.okBadge : styles.ngBadge
-  }
-
-  const getStatusLabel = (ok) => {
-    return ok ? 'OK' : '未完了'
-  }
-
   return (
     <div style={styles.page}>
       <div style={styles.container}>
@@ -195,7 +168,7 @@ export default function StaffManageClient() {
               <h1 style={styles.title}>-Bistro-Bambi</h1>
               <p style={styles.subtitle}>従業員一括管理</p>
               <p style={styles.headerDescription}>
-                従業員カードの月末リセット前に、給与プレビュー・金庫情報の保存状況を確認します。
+                従業員カードの月末リセット前に、給与プレビュー・金庫情報・給与期間の確定状況を確認します。
               </p>
             </div>
           </div>
@@ -229,7 +202,7 @@ export default function StaffManageClient() {
           <div style={styles.warningBadge}>RESET CHECK</div>
           <h2 style={styles.warningTitle}>リセット前チェック</h2>
           <p style={styles.warningText}>
-            月末リセット前に、対象月の給与期間・給与プレビュー・金庫情報が保存済みか確認します。
+            月末リセット前に、対象月の給与期間・給与プレビュー・金庫情報・給与確定状況を確認します。
             リセットしても出勤履歴や給与明細は削除されませんが、カード上の現在スタンプ数は0になります。
           </p>
         </section>
@@ -294,7 +267,7 @@ export default function StaffManageClient() {
               />
 
               <SummaryCard
-                label="従業員カード"
+                label="在籍中従業員カード"
                 value={`${formatNumber(resetStatus.staff_card_count)}件`}
                 sub={`現在スタンプ合計 ${formatNumber(resetStatus.current_stamp_total)}`}
               />
@@ -311,7 +284,8 @@ export default function StaffManageClient() {
                 <div>
                   <h2 style={styles.sectionTitle}>給与保存状況</h2>
                   <p style={styles.description}>
-                    前半・後半の給与プレビューと金庫情報が保存されているか確認します。
+                    前半・後半の給与期間、給与プレビュー、金庫情報が保存されているか確認します。
+                    給与期間が確定済みでない場合、月末一括リセットは実行できません。
                   </p>
                 </div>
               </div>
@@ -368,13 +342,13 @@ export default function StaffManageClient() {
 
               {resetStatus.can_reset ? (
                 <p style={styles.statusText}>
-                  給与期間・給与プレビュー・金庫情報が保存済みです。
+                  給与期間・給与プレビュー・金庫情報が保存済みで、給与期間も確定済みです。
                   内容を最終確認したうえで、月末リセットを実行してください。
                 </p>
               ) : (
                 <div>
                   <p style={styles.statusText}>
-                    以下の項目を確認してください。
+                    以下の項目を確認してください。未完了項目がある間は、月末一括リセットを実行できません。
                   </p>
 
                   <ul style={styles.warningList}>
@@ -399,22 +373,23 @@ export default function StaffManageClient() {
         <section style={styles.panel}>
           <div style={styles.iconBox}>0</div>
 
-          <h2 style={styles.sectionTitle}>従業員カード一括リセット</h2>
+          <h2 style={styles.sectionTitle}>在籍中従業員カード一括リセット</h2>
 
           <p style={styles.description}>
-            すべての従業員カードの出勤数を 0 に戻します。
+            在籍中従業員カードの出勤数を 0 に戻します。
             Discordでの出勤スタンプ運用を翌月分として再開する前に使用します。
+            退職済み従業員カードと通常のお客様スタンプカードは対象外です。
           </p>
 
           <button
             onClick={resetAllStaffCards}
-            disabled={isResetting || checkLoading}
+            disabled={isResetting || checkLoading || !resetStatus?.can_reset}
             style={{
               ...styles.primaryButton,
-              ...((isResetting || checkLoading) ? styles.disabledButton : {}),
+              ...((isResetting || checkLoading || !resetStatus?.can_reset) ? styles.disabledButton : {}),
             }}
           >
-            {isResetting ? 'リセット中...' : '全従業員カードをリセット'}
+            {isResetting ? 'リセット中...' : '在籍中従業員カードをリセット'}
           </button>
         </section>
       </div>
@@ -552,6 +527,7 @@ const styles = {
     color: theme.deep,
     fontWeight: 900,
     lineHeight: 1.7,
+    whiteSpace: 'pre-wrap',
   },
   warningPanel: {
     background: theme.panel,

@@ -4,18 +4,15 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
-const STAFF_GRADES = ['Recruit', 'Employee', 'Experienced', 'Chief']
+const BINGO_PROGRAM_CODE = 'bingo_regular'
 
-export default function EmployeesClient() {
+export default function BingoCustomersClient() {
   const [loading, setLoading] = useState(true)
   const [savingUserId, setSavingUserId] = useState(null)
   const [message, setMessage] = useState('')
 
   const [store, setStore] = useState(null)
-  const [employees, setEmployees] = useState([])
-  const [cardMap, setCardMap] = useState({})
-
-  const [statusFilter, setStatusFilter] = useState('active')
+  const [customers, setCustomers] = useState([])
   const [searchText, setSearchText] = useState('')
   const [edits, setEdits] = useState({})
 
@@ -30,9 +27,7 @@ export default function EmployeesClient() {
     try {
       const currentStore = await fetchCurrentStore()
       setStore(currentStore)
-
-      const employeeRows = await fetchEmployees(currentStore.store_id)
-      await fetchStaffCardsForEmployees(employeeRows)
+      await fetchCustomers(currentStore.store_id)
     } catch (error) {
       console.error(error)
       setMessage(
@@ -55,6 +50,7 @@ export default function EmployeesClient() {
     if (settingError) throw settingError
 
     const currentStoreCode = setting?.setting_value
+
     if (!currentStoreCode) {
       throw new Error('current_store_code が設定されていません')
     }
@@ -72,79 +68,84 @@ export default function EmployeesClient() {
     return storeData
   }
 
-  const fetchEmployees = async (storeId = store?.store_id) => {
+  const fetchCustomers = async (storeId = store?.store_id) => {
     if (!storeId) return []
 
-    const { data, error } = await supabase
-      .from('employee_profiles')
+    const { data: userRows, error: userError } = await supabase
+      .from('users')
       .select(`
         user_id,
         store_id,
-        staff_code,
-        employee_name,
-        employment_status,
-        staff_grade,
-        resigned_at,
-        employee_note,
+        display_name,
+        status,
+        customer_note,
         updated_at
       `)
       .eq('store_id', storeId)
-      .order('staff_code', { ascending: true })
+      .order('user_id', { ascending: true })
 
-    if (error) throw error
+    if (userError) throw userError
 
-    const rows = data || []
-    setEmployees(rows)
+    const users = userRows || []
+    const userIds = users.map((user) => user.user_id)
+
+    if (userIds.length === 0) {
+      setCustomers([])
+      setEdits({})
+      return []
+    }
+
+    const { data: cardRows, error: cardError } = await supabase
+      .from('v_bingo_cards_current')
+      .select(`
+        user_id,
+        card_id,
+        display_name,
+        current_bingo_count,
+        grid_size,
+        card_status,
+        program_code,
+        updated_at
+      `)
+      .in('user_id', userIds)
+      .eq('program_code', BINGO_PROGRAM_CODE)
+      .eq('card_status', 'active')
+
+    if (cardError) throw cardError
+
+    const cardMap = {}
+    ;(cardRows || []).forEach((card) => {
+      cardMap[String(card.user_id)] = card
+    })
+
+    const rows = users
+      .filter((user) => cardMap[String(user.user_id)])
+      .map((user) => {
+        const card = cardMap[String(user.user_id)]
+
+        return {
+          ...user,
+          card_id: card.card_id,
+          current_bingo_count: card.current_bingo_count ?? 0,
+          grid_size: card.grid_size ?? 5,
+          card_status: card.card_status,
+          card_updated_at: card.updated_at,
+          display_name: card.display_name || user.display_name || '未登録',
+        }
+      })
+
+    setCustomers(rows)
 
     const nextEdits = {}
-    rows.forEach((employee) => {
-      nextEdits[employee.user_id] = {
-        employeeName: employee.employee_name || '',
-        employmentStatus: employee.employment_status || 'active',
-        staffGrade: employee.staff_grade || 'Recruit',
-        resignedAt: employee.resigned_at || '',
-        employeeNote: employee.employee_note || '',
+    rows.forEach((customer) => {
+      nextEdits[customer.user_id] = {
+        displayName: customer.display_name || '未登録',
+        customerNote: customer.customer_note || '',
       }
     })
     setEdits(nextEdits)
 
     return rows
-  }
-
-  const fetchStaffCardsForEmployees = async (employeeRows = employees) => {
-    const userIds = (employeeRows || [])
-      .map((employee) => employee.user_id)
-      .filter((userId) => userId !== null && userId !== undefined)
-
-    if (userIds.length === 0) {
-      setCardMap({})
-      return {}
-    }
-
-    const { data, error } = await supabase
-      .from('v_staff_stamp_cards_current')
-      .select(`
-        user_id,
-        staff_code,
-        current_count,
-        max_count,
-        card_id,
-        card_status,
-        program_code
-      `)
-      .in('user_id', userIds)
-      .eq('program_code', 'stamp_staff_attendance')
-      .eq('card_status', 'active')
-
-    if (error) throw error
-
-    const map = {}
-    ;(data || []).forEach((card) => {
-      map[String(card.user_id)] = card
-    })
-
-    setCardMap(map)
-    return map
   }
 
   const reload = async () => {
@@ -154,9 +155,8 @@ export default function EmployeesClient() {
     setMessage('再読み込み中です...')
 
     try {
-      const employeeRows = await fetchEmployees(store.store_id)
-      await fetchStaffCardsForEmployees(employeeRows)
-      setMessage('従業員一覧を再読み込みしました')
+      await fetchCustomers(store.store_id)
+      setMessage('ビンゴカード一覧を再読み込みしました')
     } catch (error) {
       console.error(error)
       setMessage(
@@ -169,118 +169,98 @@ export default function EmployeesClient() {
     }
   }
 
+  const syncBingoCardImage = async (targetUserId) => {
+    const syncRes = await fetch(`/api/sync-bingo-card/${targetUserId}`, {
+      method: 'POST',
+      cache: 'no-store',
+    })
+
+    const syncJson = await syncRes.json()
+
+    if (!syncRes.ok || !syncJson.ok) {
+      throw new Error(syncJson.error || syncJson.message || 'ビンゴカード画像の同期に失敗しました')
+    }
+
+    return syncJson
+  }
+
   const updateEdit = (userId, field, value) => {
     setEdits((prev) => ({
       ...prev,
       [userId]: {
         ...(prev[userId] || {
-          employeeName: '',
-          employmentStatus: 'active',
-          staffGrade: 'Recruit',
-          resignedAt: '',
-          employeeNote: '',
+          displayName: '',
+          customerNote: '',
         }),
         [field]: value,
       },
     }))
   }
 
-  const saveEmployee = async (employee) => {
-    const edit = edits[employee.user_id]
+  const saveCustomer = async (customer) => {
+    const edit = edits[customer.user_id]
     if (!edit) return
 
-    setSavingUserId(employee.user_id)
-    setMessage(`${employee.staff_code} を保存中です...`)
+    setSavingUserId(customer.user_id)
+    setMessage(`${customer.user_id} を保存中です...`)
 
     try {
-      const employmentStatus = edit.employmentStatus || 'active'
-      const staffGrade = STAFF_GRADES.includes(edit.staffGrade)
-        ? edit.staffGrade
-        : 'Recruit'
+      const displayName = edit.displayName.trim() === '' ? '未登録' : edit.displayName.trim()
+      const customerNote = edit.customerNote.trim() === '' ? null : edit.customerNote.trim()
 
-      const { error: profileError } = await supabase.rpc('update_employee_profile_admin', {
-        p_user_id: Number(employee.user_id),
-        p_employee_name: edit.employeeName.trim() === '' ? null : edit.employeeName.trim(),
-        p_employment_status: employmentStatus,
-        p_resigned_at:
-          employmentStatus === 'retired' && edit.resignedAt
-            ? edit.resignedAt
-            : null,
-        p_employee_note: edit.employeeNote.trim() === '' ? null : edit.employeeNote.trim(),
-      })
+      const { error } = await supabase
+        .from('users')
+        .update({
+          display_name: displayName,
+          customer_note: customerNote,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', customer.user_id)
 
-      if (profileError) throw profileError
+      if (error) throw error
 
-      const { error: gradeError } = await supabase.rpc('update_employee_grade_admin', {
-        p_user_id: Number(employee.user_id),
-        p_staff_grade: staffGrade,
-        p_updated_by: 'admin_ui',
-      })
+      await syncBingoCardImage(customer.user_id)
+      await fetchCustomers(store.store_id)
 
-      if (gradeError) throw gradeError
-
-      const employeeRows = await fetchEmployees(store.store_id)
-      await fetchStaffCardsForEmployees(employeeRows)
-
-      setMessage(`${employee.staff_code} を保存しました`)
+      setMessage(`${customer.user_id} を保存しました`)
     } catch (error) {
       console.error(error)
       setMessage(
         error instanceof Error
-          ? `${employee.staff_code} の保存に失敗しました: ${error.message}`
-          : `${employee.staff_code} の保存に失敗しました`
+          ? `${customer.user_id} の保存に失敗しました: ${error.message}`
+          : `${customer.user_id} の保存に失敗しました`
       )
     } finally {
       setSavingUserId(null)
     }
   }
 
-  const markRetiredToday = (employee) => {
-    const today = new Date().toISOString().slice(0, 10)
-    updateEdit(employee.user_id, 'employmentStatus', 'retired')
-    updateEdit(employee.user_id, 'resignedAt', today)
-  }
-
-  const markActive = (employee) => {
-    updateEdit(employee.user_id, 'employmentStatus', 'active')
-    updateEdit(employee.user_id, 'resignedAt', '')
-  }
-
-  const filteredEmployees = useMemo(() => {
+  const filteredCustomers = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
 
-    return employees.filter((employee) => {
-      const status = employee.employment_status || 'active'
+    if (!keyword) return customers
 
-      if (statusFilter === 'active' && status !== 'active') return false
-      if (statusFilter === 'retired' && status !== 'retired') return false
-
-      if (!keyword) return true
-
+    return customers.filter((customer) => {
       const joined = [
-        employee.staff_code,
-        employee.employee_name,
-        employee.staff_grade,
-        employee.employee_note,
+        customer.user_id,
+        customer.display_name,
+        customer.customer_note,
       ]
-        .filter(Boolean)
+        .filter((value) => value !== null && value !== undefined)
         .join(' ')
         .toLowerCase()
 
       return joined.includes(keyword)
     })
-  }, [employees, statusFilter, searchText])
+  }, [customers, searchText])
 
-  const activeCount = employees.filter(
-    (employee) => (employee.employment_status || 'active') === 'active'
-  ).length
+  const totalBingoCount = customers.reduce(
+    (sum, customer) => sum + Number(customer.current_bingo_count || 0),
+    0
+  )
 
-  const retiredCount = employees.filter(
-    (employee) => employee.employment_status === 'retired'
-  ).length
-
-  const chiefCount = employees.filter(
-    (employee) => employee.staff_grade === 'Chief'
+  const hasBingoCount = customers.filter(
+    (customer) => Number(customer.current_bingo_count || 0) > 0
   ).length
 
   const logout = async () => {
@@ -310,12 +290,12 @@ export default function EmployeesClient() {
       <div style={styles.container}>
         <header style={styles.header}>
           <div style={styles.brandRow}>
-            <div style={styles.brandMark}>👥</div>
+            <div style={styles.brandMark}>🎯</div>
             <div>
               <h1 style={styles.title}>-Bistro-Bambi</h1>
-              <p style={styles.subtitle}>従業員一覧・退職管理</p>
+              <p style={styles.subtitle}>ビンゴ 顧客一覧</p>
               <p style={styles.headerDescription}>
-                従業員名、グレード、在籍状況、退職日、メモを管理します。
+                ビンゴカードの番号、氏名、ビンゴ状況、メモを一覧で確認・管理します。
               </p>
               <p style={styles.storeText}>
                 現在の対象店舗：
@@ -325,16 +305,12 @@ export default function EmployeesClient() {
           </div>
 
           <nav style={styles.nav}>
-            <Link href="/admin/staff/card" style={styles.navButton}>
-              従業員カード
+            <Link href="/admin/bingo" style={styles.navButton}>
+              カード操作
             </Link>
 
-            <Link href="/admin/staff/payroll" style={styles.navButton}>
-              給与管理
-            </Link>
-
-            <Link href="/admin/staff" style={styles.navButton}>
-              従業員管理
+            <Link href="/admin/bingo/manage" style={styles.navButton}>
+              イベント管理
             </Link>
 
             <Link href="/admin" style={styles.navButton}>
@@ -355,26 +331,26 @@ export default function EmployeesClient() {
 
         <section style={styles.summaryGrid}>
           <SummaryCard
-            label="従業員数"
-            value={`${employees.length}人`}
-            sub="登録済み従業員"
+            label="通常ビンゴカード数"
+            value={`${customers.length}枚`}
+            sub="登録済み通常ビンゴカード"
           />
 
           <SummaryCard
-            label="在籍中"
-            value={`${activeCount}人`}
-            sub="通常表示対象"
+            label="ビンゴ数合計"
+            value={formatNumber(totalBingoCount)}
+            sub="表示店舗の合計"
           />
 
           <SummaryCard
-            label="Chief"
-            value={`${chiefCount}人`}
-            sub="最高グレード"
+            label="ビンゴあり"
+            value={`${hasBingoCount}枚`}
+            sub="1件以上ビンゴしているカード"
           />
 
           <SummaryCard
             label="表示中"
-            value={`${filteredEmployees.length}人`}
+            value={`${filteredCustomers.length}枚`}
             sub="現在の条件に一致"
           />
         </section>
@@ -384,25 +360,12 @@ export default function EmployeesClient() {
             <div>
               <h2 style={styles.sectionTitle}>表示条件</h2>
               <p style={styles.description}>
-                在籍中のみ、退職済みも含める、退職済みのみを切り替えられます。検索では従業員コード・氏名・グレード・メモを対象にします。
+                カード番号、氏名、メモで絞り込みできます。
               </p>
             </div>
           </div>
 
           <div style={styles.filterGrid}>
-            <label>
-              <div style={styles.inputLabel}>表示対象</div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={styles.select}
-              >
-                <option value="active">在籍中のみ</option>
-                <option value="all">退職済みも表示</option>
-                <option value="retired">退職済みのみ</option>
-              </select>
-            </label>
-
             <label>
               <div style={styles.inputLabel}>検索</div>
               <input
@@ -410,7 +373,7 @@ export default function EmployeesClient() {
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 style={styles.input}
-                placeholder="従業員コード・氏名・グレード・メモ"
+                placeholder="カード番号・氏名・メモ"
               />
             </label>
 
@@ -423,140 +386,88 @@ export default function EmployeesClient() {
         <section style={styles.panel}>
           <div style={styles.sectionHead}>
             <div>
-              <h2 style={styles.sectionTitle}>従業員一覧</h2>
+              <h2 style={styles.sectionTitle}>ビンゴカード一覧</h2>
               <p style={styles.description}>
-                グレード、在籍状況、退職日、メモを編集できます。
-                退職済みにしても過去の給与履歴自体は削除されません。
+                氏名とメモを編集できます。「カード」ボタンでビンゴカード管理画面を検索済み状態で開きます。
               </p>
             </div>
           </div>
 
-          {filteredEmployees.length === 0 ? (
+          {filteredCustomers.length === 0 ? (
             <div style={styles.emptyBox}>
-              条件に一致する従業員はいません。
+              条件に一致するビンゴカードはありません。
             </div>
           ) : (
             <div style={styles.tableWrap}>
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={styles.th}>従業員コード</th>
+                    <th style={styles.th}>カード番号</th>
                     <th style={styles.th}>氏名</th>
-                    <th style={styles.th}>グレード</th>
-                    <th style={styles.th}>状態</th>
-                    <th style={styles.th}>退職日</th>
-                    <th style={styles.th}>現在スタンプ</th>
+                    <th style={styles.th}>ビンゴ状況</th>
                     <th style={styles.th}>メモ</th>
+                    <th style={styles.th}>カード状態</th>
                     <th style={styles.th}>操作</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {filteredEmployees.map((employee) => {
-                    const edit = edits[employee.user_id] || {
-                      employeeName: employee.employee_name || '',
-                      employmentStatus: employee.employment_status || 'active',
-                      staffGrade: employee.staff_grade || 'Recruit',
-                      resignedAt: employee.resigned_at || '',
-                      employeeNote: employee.employee_note || '',
+                  {filteredCustomers.map((customer) => {
+                    const edit = edits[customer.user_id] || {
+                      displayName: customer.display_name || '未登録',
+                      customerNote: customer.customer_note || '',
                     }
 
-                    const card = cardMap[String(employee.user_id)]
-                    const isRetired = edit.employmentStatus === 'retired'
-                    const isSaving = savingUserId === employee.user_id
+                    const isSaving = savingUserId === customer.user_id
+                    const bingoCount = Number(customer.current_bingo_count || 0)
 
                     return (
-                      <tr key={employee.user_id}>
+                      <tr key={customer.user_id}>
                         <td style={styles.tdStrong}>
-                          <div>{employee.staff_code}</div>
-                          <div style={styles.userSub}>ID: {employee.user_id}</div>
+                          <div>{customer.user_id}</div>
+                          <div style={styles.userSub}>Card ID: {customer.card_id}</div>
                         </td>
 
                         <td style={styles.td}>
                           <input
                             type="text"
-                            value={edit.employeeName}
-                            onChange={(e) => updateEdit(employee.user_id, 'employeeName', e.target.value)}
+                            value={edit.displayName}
+                            onChange={(e) => updateEdit(customer.user_id, 'displayName', e.target.value)}
                             style={styles.nameInput}
                             placeholder="氏名"
                           />
                         </td>
 
-                        <td style={styles.td}>
-                          <select
-                            value={edit.staffGrade}
-                            onChange={(e) => updateEdit(employee.user_id, 'staffGrade', e.target.value)}
-                            style={styles.gradeSelect}
-                          >
-                            {STAFF_GRADES.map((grade) => (
-                              <option key={grade} value={grade}>
-                                {grade}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-
-                        <td style={styles.td}>
-                          <select
-                            value={edit.employmentStatus}
-                            onChange={(e) => updateEdit(employee.user_id, 'employmentStatus', e.target.value)}
-                            style={isRetired ? styles.statusSelectRetired : styles.statusSelectActive}
-                          >
-                            <option value="active">在籍中</option>
-                            <option value="retired">退職済み</option>
-                          </select>
-                        </td>
-
-                        <td style={styles.td}>
-                          <input
-                            type="date"
-                            value={edit.resignedAt || ''}
-                            onChange={(e) => updateEdit(employee.user_id, 'resignedAt', e.target.value)}
-                            disabled={!isRetired}
-                            style={{
-                              ...styles.dateInput,
-                              ...(!isRetired ? styles.disabledInput : {}),
-                            }}
-                          />
-                        </td>
-
                         <td style={styles.tdCenter}>
-                          {card ? formatNumber(card.current_count) : '-'}
+                          <div style={bingoCount > 0 ? styles.completedStamp : styles.normalStamp}>
+                            {formatNumber(customer.current_bingo_count)} ビンゴ
+                          </div>
+                          <div style={styles.userSub}>
+                            {customer.grid_size} × {customer.grid_size}
+                          </div>
                         </td>
 
                         <td style={styles.td}>
                           <input
                             type="text"
-                            value={edit.employeeNote}
-                            onChange={(e) => updateEdit(employee.user_id, 'employeeNote', e.target.value)}
+                            value={edit.customerNote}
+                            onChange={(e) => updateEdit(customer.user_id, 'customerNote', e.target.value)}
                             style={styles.noteInput}
                             placeholder="メモ"
                           />
                         </td>
 
+                        <td style={styles.tdCenter}>
+                          <span style={styles.statusBadge}>
+                            {customer.card_status || 'active'}
+                          </span>
+                        </td>
+
                         <td style={styles.td}>
                           <div style={styles.actionGroup}>
-                            {isRetired ? (
-                              <button
-                                type="button"
-                                onClick={() => markActive(employee)}
-                                style={styles.secondaryMiniButton}
-                              >
-                                在籍に戻す
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => markRetiredToday(employee)}
-                                style={styles.dangerMiniButton}
-                              >
-                                退職
-                              </button>
-                            )}
-
                             <button
                               type="button"
-                              onClick={() => saveEmployee(employee)}
+                              onClick={() => saveCustomer(customer)}
                               disabled={isSaving}
                               style={{
                                 ...styles.primaryMiniButton,
@@ -567,10 +478,10 @@ export default function EmployeesClient() {
                             </button>
 
                             <Link
-                              href={`/admin/staff/card?staff_code=${encodeURIComponent(employee.staff_code)}`}
+                              href={`/admin/bingo?user_id=${encodeURIComponent(customer.user_id)}`}
                               style={styles.linkMiniButton}
                             >
-                              カード
+                              開く
                             </Link>
                           </div>
                         </td>
@@ -622,7 +533,7 @@ const styles = {
     padding: '24px',
   },
   container: {
-    maxWidth: '1720px',
+    maxWidth: '1640px',
     margin: '0 auto',
   },
   header: {
@@ -766,7 +677,7 @@ const styles = {
   },
   filterGrid: {
     display: 'grid',
-    gridTemplateColumns: '220px minmax(260px, 1fr) 180px',
+    gridTemplateColumns: 'minmax(260px, 1fr) 180px',
     gap: '12px',
     alignItems: 'end',
   },
@@ -781,17 +692,6 @@ const styles = {
     boxSizing: 'border-box',
     padding: '12px 13px',
     fontSize: '16px',
-    borderRadius: '12px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.text,
-    outline: 'none',
-  },
-  select: {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '12px 13px',
-    fontSize: '15px',
     borderRadius: '12px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
@@ -821,7 +721,7 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    minWidth: '1460px',
+    minWidth: '1180px',
   },
   th: {
     background: theme.pale,
@@ -867,7 +767,7 @@ const styles = {
     fontWeight: 800,
   },
   nameInput: {
-    width: '180px',
+    width: '220px',
     boxSizing: 'border-box',
     padding: '9px 10px',
     fontSize: '14px',
@@ -876,60 +776,9 @@ const styles = {
     background: theme.white,
     color: theme.text,
     outline: 'none',
-  },
-  gradeSelect: {
-    width: '150px',
-    boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.deep,
-    outline: 'none',
-    fontWeight: 900,
-  },
-  statusSelectActive: {
-    width: '120px',
-    boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.pale,
-    color: theme.deep,
-    outline: 'none',
-    fontWeight: 900,
-  },
-  statusSelectRetired: {
-    width: '120px',
-    boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.dangerPale,
-    color: theme.danger,
-    outline: 'none',
-    fontWeight: 900,
-  },
-  dateInput: {
-    width: '150px',
-    boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.text,
-    outline: 'none',
-  },
-  disabledInput: {
-    background: theme.panel2,
-    color: theme.muted,
   },
   noteInput: {
-    width: '240px',
+    width: '360px',
     boxSizing: 'border-box',
     padding: '9px 10px',
     fontSize: '14px',
@@ -938,6 +787,23 @@ const styles = {
     background: theme.white,
     color: theme.text,
     outline: 'none',
+  },
+  normalStamp: {
+    color: theme.deep,
+    fontWeight: 950,
+  },
+  completedStamp: {
+    color: theme.green,
+    fontWeight: 950,
+  },
+  statusBadge: {
+    display: 'inline-flex',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.pale,
+    color: theme.deep,
+    fontSize: '12px',
+    fontWeight: 950,
   },
   actionGroup: {
     display: 'flex',
@@ -953,28 +819,6 @@ const styles = {
     border: 'none',
     background: theme.green,
     color: theme.white,
-    cursor: 'pointer',
-    textDecoration: 'none',
-  },
-  secondaryMiniButton: {
-    padding: '9px 12px',
-    fontSize: '13px',
-    fontWeight: 900,
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.deep,
-    cursor: 'pointer',
-    textDecoration: 'none',
-  },
-  dangerMiniButton: {
-    padding: '9px 12px',
-    fontSize: '13px',
-    fontWeight: 900,
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.danger,
     cursor: 'pointer',
     textDecoration: 'none',
   },

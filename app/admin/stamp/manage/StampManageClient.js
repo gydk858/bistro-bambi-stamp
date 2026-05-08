@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function StampManageClient() {
@@ -10,9 +10,49 @@ export default function StampManageClient() {
   const [archiveMessage, setArchiveMessage] = useState('')
   const [archiveLoading, setArchiveLoading] = useState(false)
 
+  const [archivedCards, setArchivedCards] = useState([])
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [restoreLoadingCardId, setRestoreLoadingCardId] = useState(null)
+  const [restoreMessage, setRestoreMessage] = useState('')
+
+  useEffect(() => {
+    fetchArchivedCards()
+  }, [])
+
+  const fetchArchivedCards = async () => {
+    setArchivedLoading(true)
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'list_archived_regular_customer_stamp_cards'
+      )
+
+      if (error) {
+        throw error
+      }
+
+      setArchivedCards(Array.isArray(data) ? data : [])
+    } catch (error) {
+      setRestoreMessage(
+        error instanceof Error
+          ? `アーカイブ済みカード一覧の取得に失敗しました: ${error.message}`
+          : 'アーカイブ済みカード一覧の取得に失敗しました'
+      )
+      setArchivedCards([])
+    } finally {
+      setArchivedLoading(false)
+    }
+  }
+
   const handleReset = async () => {
     const ok = window.confirm(
-      '本当に全てのスタンプを 0 に戻しますか？この操作は元に戻せません。'
+      [
+        '本当に通常スタンプカードのスタンプを 0 に戻しますか？',
+        '',
+        '対象は通常スタンプカードのみです。',
+        '従業員カードは対象外です。',
+        'この操作は元に戻せません。',
+      ].join('\n')
     )
 
     if (!ok) return
@@ -32,7 +72,7 @@ export default function StampManageClient() {
         return
       }
 
-      setMessage(result.message || 'リセットしました')
+      setMessage(result.message || '通常スタンプカードをリセットしました')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'リセットに失敗しました')
     } finally {
@@ -42,7 +82,13 @@ export default function StampManageClient() {
 
   const handleArchive = async () => {
     const ok = window.confirm(
-      '現在のスタンプイベントのカードをアーカイブしますか？\nアーカイブ後は通常画面や bot からは表示されなくなります。'
+      [
+        '現在の通常スタンプイベントのカードをアーカイブしますか？',
+        '',
+        '対象は通常スタンプカードのみです。',
+        '従業員カードは対象外です。',
+        'アーカイブ後は通常画面や bot からは表示されなくなります。',
+      ].join('\n')
     )
 
     if (!ok) return
@@ -51,10 +97,13 @@ export default function StampManageClient() {
     setArchiveMessage('')
 
     try {
-      const { data, error } = await supabase.rpc('archive_active_stamp_cards', {
-        p_acted_by: 'admin_ui',
-        p_reason: '管理画面からスタンプイベント終了',
-      })
+      const { data, error } = await supabase.rpc(
+        'archive_active_regular_customer_stamp_cards',
+        {
+          p_acted_by: 'admin_ui',
+          p_reason: '管理画面から通常スタンプイベント終了',
+        }
+      )
 
       if (error || !data || data.length === 0) {
         setArchiveMessage('アーカイブに失敗しました')
@@ -63,14 +112,86 @@ export default function StampManageClient() {
 
       const result = data[0]
       setArchiveMessage(
-        `現在のスタンプカードをアーカイブしました（${result.affected_cards}件）`
+        `現在の通常スタンプカードをアーカイブしました（${result.affected_cards}件）`
       )
+
+      await fetchArchivedCards()
     } catch (error) {
       setArchiveMessage(
         error instanceof Error ? error.message : 'アーカイブに失敗しました'
       )
     } finally {
       setArchiveLoading(false)
+    }
+  }
+
+  const handleRestore = async (card) => {
+    const ok = window.confirm(
+      [
+        'この通常スタンプカードを復元しますか？',
+        '',
+        `カード番号: ${card.user_id}`,
+        `Card ID: ${card.card_id}`,
+        `氏名: ${card.display_name || '未登録'}`,
+        '',
+        '復元後は通常スタンプカード管理画面で検索できるようになります。',
+      ].join('\n')
+    )
+
+    if (!ok) return
+
+    setRestoreLoadingCardId(card.card_id)
+    setRestoreMessage('')
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'restore_regular_customer_stamp_card',
+        {
+          p_card_id: Number(card.card_id),
+          p_acted_by: 'admin_ui',
+          p_reason: '管理画面から通常スタンプカードを復元',
+        }
+      )
+
+      if (error || !data || data.length === 0) {
+        setRestoreMessage('復元に失敗しました')
+        return
+      }
+
+      const restored = data[0]
+      setRestoreMessage(
+        `カード番号 ${restored.user_id} / Card ID ${restored.card_id} を復元しました`
+      )
+
+      await fetchArchivedCards()
+    } catch (error) {
+      setRestoreMessage(
+        error instanceof Error ? error.message : '復元に失敗しました'
+      )
+    } finally {
+      setRestoreLoadingCardId(null)
+    }
+  }
+
+  const formatNumber = (value) => {
+    if (value === null || value === undefined || value === '') return '0'
+    return Number(value).toLocaleString()
+  }
+
+  const formatDateTime = (value) => {
+    if (!value) return '-'
+
+    try {
+      return new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(value))
+    } catch {
+      return String(value)
     }
   }
 
@@ -82,16 +203,20 @@ export default function StampManageClient() {
             <div style={styles.brandMark}>🌿</div>
             <div>
               <h1 style={styles.title}>-Bistro-Bambi</h1>
-              <p style={styles.subtitle}>スタンプ管理</p>
+              <p style={styles.subtitle}>通常スタンプ イベント管理</p>
               <p style={styles.headerDescription}>
-                通常スタンプイベントの一括リセットとアーカイブを行います。
+                通常スタンプカードの一括リセット、イベント終了時のアーカイブ、復元を行います。
               </p>
             </div>
           </div>
 
           <nav style={styles.nav}>
             <a href="/admin/stamp" style={styles.navButton}>
-              スタンプ画面に戻る
+              カード操作に戻る
+            </a>
+
+            <a href="/admin/stamp/customers" style={styles.navButton}>
+              顧客一覧
             </a>
 
             <a href="/admin" style={styles.navButton}>
@@ -104,19 +229,20 @@ export default function StampManageClient() {
           <div style={styles.warningBadge}>IMPORTANT</div>
           <h2 style={styles.warningTitle}>操作前に確認してください</h2>
           <p style={styles.warningText}>
-            この画面の操作は、通常スタンプカード全体に影響します。
-            リセットやアーカイブは運用タイミングを確認してから実行してください。
+            この画面の一括操作は、通常スタンプカードに影響します。
+            従業員カードは対象外です。リセットやアーカイブは運用タイミングを確認してから実行してください。
           </p>
         </section>
 
         <div style={styles.grid}>
           <section style={styles.panel}>
             <div style={styles.iconBox}>↺</div>
-            <h2 style={styles.sectionTitle}>スタンプカード一括リセット</h2>
+            <h2 style={styles.sectionTitle}>通常スタンプカード一括リセット</h2>
 
             <p style={styles.description}>
-              すべてのお客様のスタンプ数を 0 に戻します。
+              通常スタンプカードのスタンプ数を 0 に戻します。
               イベントは継続したまま、中身だけ初期化したい場合に使います。
+              従業員カードは対象外です。
             </p>
 
             <button
@@ -127,7 +253,7 @@ export default function StampManageClient() {
                 ...(loading ? styles.disabledButton : {}),
               }}
             >
-              {loading ? 'リセット中...' : '全スタンプを 0 に戻す'}
+              {loading ? 'リセット中...' : '通常スタンプを 0 に戻す'}
             </button>
 
             {message && (
@@ -139,11 +265,12 @@ export default function StampManageClient() {
 
           <section style={styles.panel}>
             <div style={styles.iconBox}>□</div>
-            <h2 style={styles.sectionTitle}>現在イベントのカードをアーカイブ</h2>
+            <h2 style={styles.sectionTitle}>通常スタンプイベントをアーカイブ</h2>
 
             <p style={styles.description}>
-              現在のスタンプイベントを終了し、現役カードをすべてアーカイブします。
+              現在の通常スタンプイベントを終了し、現役の通常スタンプカードをアーカイブします。
               アーカイブ後は通常画面・bot・画像生成では表示されません。
+              従業員カードは対象外です。
             </p>
 
             <button
@@ -154,7 +281,7 @@ export default function StampManageClient() {
                 ...(archiveLoading ? styles.disabledDangerButton : {}),
               }}
             >
-              {archiveLoading ? 'アーカイブ中...' : '現在イベントを終了してアーカイブ'}
+              {archiveLoading ? 'アーカイブ中...' : '通常スタンプイベントを終了してアーカイブ'}
             </button>
 
             {archiveMessage && (
@@ -164,6 +291,99 @@ export default function StampManageClient() {
             )}
           </section>
         </div>
+
+        <section style={styles.restorePanel}>
+          <div style={styles.restoreHeader}>
+            <div>
+              <div style={styles.restoreBadge}>ARCHIVED CARDS</div>
+              <h2 style={styles.sectionTitle}>アーカイブ済み通常スタンプカード</h2>
+              <p style={styles.description}>
+                アーカイブ済みの通常スタンプカードを確認し、必要なカードだけ復元できます。
+                復元時に同じカード番号の有効カードが存在する場合は、重複防止のため復元できません。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchArchivedCards}
+              disabled={archivedLoading}
+              style={{
+                ...styles.secondaryButton,
+                ...(archivedLoading ? styles.disabledButton : {}),
+              }}
+            >
+              {archivedLoading ? '読込中...' : '一覧更新'}
+            </button>
+          </div>
+
+          {restoreMessage && (
+            <div style={styles.messageBox}>
+              {restoreMessage}
+            </div>
+          )}
+
+          {archivedLoading ? (
+            <div style={styles.emptyBox}>
+              アーカイブ済みカードを読み込み中です...
+            </div>
+          ) : archivedCards.length === 0 ? (
+            <div style={styles.emptyBox}>
+              アーカイブ済みの通常スタンプカードはありません。
+            </div>
+          ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>カード番号</th>
+                    <th style={styles.th}>Card ID</th>
+                    <th style={styles.th}>氏名</th>
+                    <th style={styles.th}>スタンプ数</th>
+                    <th style={styles.th}>メモ</th>
+                    <th style={styles.th}>アーカイブ日時</th>
+                    <th style={styles.th}>操作</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {archivedCards.map((card) => {
+                    const isRestoring = restoreLoadingCardId === card.card_id
+
+                    return (
+                      <tr key={card.card_id}>
+                        <td style={styles.tdStrong}>{card.user_id}</td>
+                        <td style={styles.td}>{card.card_id}</td>
+                        <td style={styles.td}>{card.display_name || '未登録'}</td>
+                        <td style={styles.tdCenter}>
+                          {formatNumber(card.current_count)} / {formatNumber(card.max_count)}
+                        </td>
+                        <td style={styles.tdMemo}>
+                          {card.customer_note || '-'}
+                        </td>
+                        <td style={styles.td}>
+                          {formatDateTime(card.archived_at)}
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            type="button"
+                            onClick={() => handleRestore(card)}
+                            disabled={isRestoring}
+                            style={{
+                              ...styles.primaryMiniButton,
+                              ...(isRestoring ? styles.disabledButton : {}),
+                            }}
+                          >
+                            {isRestoring ? '復元中' : '復元'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   )
@@ -194,7 +414,7 @@ const styles = {
     padding: '24px',
   },
   container: {
-    maxWidth: '1180px',
+    maxWidth: '1280px',
     margin: '0 auto',
   },
   header: {
@@ -300,6 +520,7 @@ const styles = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
     gap: '18px',
     alignItems: 'stretch',
+    marginBottom: '18px',
   },
   panel: {
     background: theme.panel,
@@ -307,6 +528,33 @@ const styles = {
     borderRadius: '20px',
     padding: '24px',
     boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  restorePanel: {
+    background: theme.panel,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '24px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+  },
+  restoreHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '16px',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
+  },
+  restoreBadge: {
+    display: 'inline-flex',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: theme.pale,
+    border: `1px solid ${theme.border2}`,
+    color: theme.deep,
+    fontSize: '12px',
+    fontWeight: 950,
+    marginBottom: '10px',
+    letterSpacing: '0.08em',
   },
   iconBox: {
     width: '58px',
@@ -346,6 +594,20 @@ const styles = {
     cursor: 'pointer',
     boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
   },
+  secondaryButton: {
+    padding: '12px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   disabledButton: {
     opacity: 0.65,
     cursor: 'default',
@@ -375,5 +637,85 @@ const styles = {
     color: theme.deep,
     fontWeight: 900,
     lineHeight: 1.7,
+  },
+  emptyBox: {
+    background: theme.white,
+    border: `1px dashed ${theme.border2}`,
+    borderRadius: '16px',
+    padding: '38px 24px',
+    textAlign: 'center',
+    color: theme.muted,
+    fontSize: '16px',
+    lineHeight: 1.8,
+  },
+  tableWrap: {
+    overflowX: 'auto',
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '16px',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    minWidth: '980px',
+  },
+  th: {
+    background: theme.pale,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '13px 14px',
+    borderBottom: `1px solid ${theme.border2}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: 900,
+  },
+  td: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.text,
+    verticalAlign: 'top',
+  },
+  tdStrong: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    fontWeight: 900,
+    verticalAlign: 'top',
+  },
+  tdCenter: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    color: theme.deep,
+    textAlign: 'center',
+    fontWeight: 900,
+    verticalAlign: 'top',
+  },
+  tdMemo: {
+    padding: '12px 14px',
+    borderBottom: `1px solid ${theme.border}`,
+    fontSize: '14px',
+    color: theme.text,
+    verticalAlign: 'top',
+    minWidth: '180px',
+    maxWidth: '280px',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+  },
+  primaryMiniButton: {
+    padding: '9px 12px',
+    fontSize: '13px',
+    fontWeight: 900,
+    borderRadius: '10px',
+    border: 'none',
+    background: theme.green,
+    color: theme.white,
+    cursor: 'pointer',
+    textDecoration: 'none',
   },
 }

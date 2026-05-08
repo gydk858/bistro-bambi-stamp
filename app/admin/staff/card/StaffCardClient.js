@@ -29,6 +29,8 @@ export default function StaffCardClient() {
   const [isStoreLoading, setIsStoreLoading] = useState(true)
   const [autoSearchDone, setAutoSearchDone] = useState(false)
 
+  const isCardOperable = cardRecord?.employment_status === 'active'
+
   const normalizeStaffCode = (value) => {
     return String(value || '').replace(/\s+/g, '').trim()
   }
@@ -45,6 +47,12 @@ export default function StaffCardClient() {
     if (!targetRecord) return ''
     const fixedUrl = getFixedCardUrl(targetRecord.user_id)
     return `${fixedUrl}?preview=${previewKey}`
+  }
+
+  const getEmploymentStatusLabel = (status) => {
+    if (status === 'active') return '在籍中'
+    if (status === 'retired') return '退職済み'
+    return '操作不可'
   }
 
   const getJstBusinessDateForPayroll = () => {
@@ -402,6 +410,11 @@ export default function StaffCardClient() {
   const updateAttendanceCount = async (diff) => {
     if (!cardRecord) return
 
+    if (!isCardOperable) {
+      setMessage('この従業員は退職済みのため、出勤数を操作できません。')
+      return
+    }
+
     const { data, error } = await supabase.rpc('increment_stamp_card', {
       p_card_id: cardRecord.card_id,
       p_amount: diff,
@@ -444,6 +457,11 @@ export default function StaffCardClient() {
 
   const resetStaffCard = async () => {
     if (!cardRecord) return
+
+    if (!isCardOperable) {
+      setMessage('この従業員は退職済みのため、出勤数を操作できません。')
+      return
+    }
 
     const { data, error } = await supabase.rpc('reset_stamp_card', {
       p_card_id: cardRecord.card_id,
@@ -648,7 +666,7 @@ export default function StaffCardClient() {
                   </p>
                 </section>
 
-                <section style={styles.panel}>
+                <section style={isCardOperable ? styles.panel : styles.disabledPanel}>
                   <div style={styles.sectionHead}>
                     <span style={styles.sectionNumber}>04</span>
                     <h2 style={styles.sectionTitle}>出勤数の管理者調整</h2>
@@ -659,14 +677,41 @@ export default function StaffCardClient() {
                     給与集計用の出勤履歴はAM4:00基準の日付で保存されます。
                   </p>
 
+                  {!isCardOperable && (
+                    <div style={styles.retiredNotice}>
+                      この従業員は退職済みのため、出勤数を操作できません。
+                    </div>
+                  )}
+
                   <div style={styles.attendanceActions}>
-                    <button onClick={() => updateAttendanceCount(-1)} style={styles.attendanceButton}>
+                    <button
+                      onClick={() => updateAttendanceCount(-1)}
+                      style={{
+                        ...styles.attendanceButton,
+                        ...(!isCardOperable ? styles.disabledActionButton : {}),
+                      }}
+                      disabled={!isCardOperable}
+                    >
                       -1
                     </button>
-                    <button onClick={() => updateAttendanceCount(1)} style={styles.attendanceButton}>
+                    <button
+                      onClick={() => updateAttendanceCount(1)}
+                      style={{
+                        ...styles.attendanceButton,
+                        ...(!isCardOperable ? styles.disabledActionButton : {}),
+                      }}
+                      disabled={!isCardOperable}
+                    >
                       +1
                     </button>
-                    <button onClick={resetStaffCard} style={styles.dangerButton}>
+                    <button
+                      onClick={resetStaffCard}
+                      style={{
+                        ...styles.dangerButton,
+                        ...(!isCardOperable ? styles.disabledDangerButton : {}),
+                      }}
+                      disabled={!isCardOperable}
+                    >
                       リセット
                     </button>
                   </div>
@@ -692,6 +737,11 @@ export default function StaffCardClient() {
                 value={cardRecord ? cardRecord.current_count : '-'}
                 sub="Discord操作・管理者調整後の現在値"
               />
+              <SummaryCard
+                label="在籍状態"
+                value={cardRecord ? getEmploymentStatusLabel(cardRecord.employment_status) : '-'}
+                sub={cardRecord && !isCardOperable ? '退職済みのため操作不可' : '出勤数操作可能'}
+              />
             </section>
 
             <section style={styles.panel}>
@@ -706,9 +756,9 @@ export default function StaffCardClient() {
 
               {cardRecord ? (
                 <>
-                  {cardRecord.employment_status === 'retired' && (
+                  {!isCardOperable && (
                     <div style={styles.retiredNotice}>
-                      この従業員は退職済みに設定されています。
+                      この従業員は退職済みに設定されています。出勤数操作の対象外です。
                     </div>
                   )}
 
@@ -721,7 +771,7 @@ export default function StaffCardClient() {
                     <InfoItem label="現在の出勤数" value={cardRecord.current_count} />
                     <InfoItem
                       label="在籍状態"
-                      value={cardRecord.employment_status === 'retired' ? '退職済み' : '在籍中'}
+                      value={getEmploymentStatusLabel(cardRecord.employment_status)}
                     />
                     <InfoItem label="カード状態" value={cardRecord.card_status || 'active'} />
                   </div>
@@ -990,6 +1040,13 @@ const styles = {
     padding: '20px',
     boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
   },
+  disabledPanel: {
+    background: theme.panel2,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.05)',
+  },
   sectionHead: {
     display: 'flex',
     alignItems: 'center',
@@ -1094,6 +1151,11 @@ const styles = {
     cursor: 'pointer',
     boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
   },
+  disabledActionButton: {
+    opacity: 0.48,
+    cursor: 'not-allowed',
+    boxShadow: 'none',
+  },
   dangerButton: {
     gridColumn: '1 / -1',
     padding: '14px 18px',
@@ -1105,9 +1167,26 @@ const styles = {
     color: theme.danger,
     cursor: 'pointer',
   },
+  disabledDangerButton: {
+    opacity: 0.48,
+    cursor: 'not-allowed',
+    background: theme.white,
+    color: theme.muted,
+  },
+  retiredNotice: {
+    marginBottom: '14px',
+    background: theme.dangerPale,
+    border: `1px solid ${theme.border2}`,
+    borderRadius: '14px',
+    padding: '12px 14px',
+    color: theme.danger,
+    fontSize: '14px',
+    fontWeight: 900,
+    lineHeight: 1.7,
+  },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
     gap: '14px',
   },
   summaryCard: {
@@ -1150,17 +1229,6 @@ const styles = {
     color: theme.muted,
     lineHeight: 1.7,
     margin: '6px 0 0',
-  },
-  retiredNotice: {
-    marginBottom: '14px',
-    background: theme.dangerPale,
-    border: `1px solid ${theme.border2}`,
-    borderRadius: '14px',
-    padding: '12px 14px',
-    color: theme.danger,
-    fontSize: '14px',
-    fontWeight: 900,
-    lineHeight: 1.7,
   },
   infoGrid: {
     display: 'grid',

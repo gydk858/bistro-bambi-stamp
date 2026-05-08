@@ -1,22 +1,27 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const SUPABASE_PUBLIC_BINGO_BASE =
   'https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/stamp-images/live-bingo'
 
 export default function BingoClient() {
+  const searchParams = useSearchParams()
+
   const [userId, setUserId] = useState('')
   const [cardRecord, setCardRecord] = useState(null)
   const [cells, setCells] = useState([])
   const [message, setMessage] = useState('')
   const [createMessage, setCreateMessage] = useState('')
   const [openNumber, setOpenNumber] = useState('')
+  const [numberActionMode, setNumberActionMode] = useState('open')
   const [openMessage, setOpenMessage] = useState('')
   const [previewKey, setPreviewKey] = useState(Date.now())
   const [copiedFixed, setCopiedFixed] = useState(false)
   const [previewMessage, setPreviewMessage] = useState('')
+  const [autoSearchDone, setAutoSearchDone] = useState(false)
 
   const [editName, setEditName] = useState('')
   const [nameMessage, setNameMessage] = useState('')
@@ -28,7 +33,7 @@ export default function BingoClient() {
   const [mappings, setMappings] = useState([])
 
   const normalizeToHalfWidthNumber = (value) => {
-    return value
+    return String(value || '')
       .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
       .replace(/[^0-9]/g, '')
   }
@@ -60,6 +65,41 @@ export default function BingoClient() {
     }
 
     return syncJson
+  }
+
+  const fetchCurrentStore = async () => {
+    const { data: setting, error: settingError } = await supabase
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'current_store_code')
+      .maybeSingle()
+
+    if (settingError) {
+      throw new Error(`店舗設定の取得に失敗しました: ${settingError.message}`)
+    }
+
+    const currentStoreCode = setting?.setting_value
+
+    if (!currentStoreCode) {
+      throw new Error('current_store_code が設定されていません')
+    }
+
+    const { data: storeData, error: storeError } = await supabase
+      .from('stores')
+      .select('store_id, store_code, store_name, status')
+      .eq('store_code', currentStoreCode)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (storeError) {
+      throw new Error(`店舗情報の取得に失敗しました: ${storeError.message}`)
+    }
+
+    if (!storeData) {
+      throw new Error('現在の対象店舗が見つかりません')
+    }
+
+    return storeData
   }
 
   const loadMappings = async () => {
@@ -135,7 +175,7 @@ export default function BingoClient() {
     return Array.isArray(data) && data.length > 0
   }
 
-  const searchCard = async () => {
+  const searchCardById = async (targetUserId, fromAutoSearch = false) => {
     setMessage('')
     setCreateMessage('')
     setOpenMessage('')
@@ -143,7 +183,9 @@ export default function BingoClient() {
     setPreviewMessage('')
     setNameMessage('')
 
-    if (!userId) {
+    const normalized = normalizeToHalfWidthNumber(targetUserId)
+
+    if (!normalized) {
       setCardRecord(null)
       setCells([])
       setEditName('')
@@ -152,16 +194,22 @@ export default function BingoClient() {
     }
 
     try {
-      await loadBingoCard(userId)
-      await syncBingoCardImage(Number(userId))
-      setMessage('ビンゴカードを表示しました')
+      await loadBingoCard(normalized)
+      await syncBingoCardImage(Number(normalized))
+
+      setUserId(String(normalized))
+      setMessage(
+        fromAutoSearch
+          ? `ビンゴカード一覧から ${normalized} を表示しました`
+          : 'ビンゴカードを表示しました'
+      )
       refreshPreview()
     } catch (error) {
       setCardRecord(null)
       setCells([])
       setEditName('')
 
-      const isArchived = await hasArchivedBingoCardByUserId(userId)
+      const isArchived = await hasArchivedBingoCardByUserId(normalized)
 
       if (isArchived) {
         setMessage('このビンゴカードは現在使用できません')
@@ -176,6 +224,26 @@ export default function BingoClient() {
     }
   }
 
+  const searchCard = async () => {
+    await searchCardById(userId, false)
+  }
+
+  useEffect(() => {
+    loadMappings().catch(() => {
+      setMappings([])
+    })
+  }, [])
+
+  useEffect(() => {
+    const queryUserId = normalizeToHalfWidthNumber(searchParams.get('user_id'))
+
+    if (!queryUserId) return
+    if (autoSearchDone) return
+
+    setAutoSearchDone(true)
+    searchCardById(queryUserId, true)
+  }, [searchParams, autoSearchDone])
+
   const createCard = async () => {
     setMessage('')
     setCreateMessage('')
@@ -184,42 +252,43 @@ export default function BingoClient() {
     setPreviewMessage('')
     setNameMessage('')
 
-    const now = new Date().toISOString()
-
-    const { data: createdUser, error: createUserError } = await supabase
-      .from('users')
-      .insert({
-        display_name: '未登録',
-        status: 'active',
-        updated_at: now,
-      })
-      .select('user_id, display_name, updated_at')
-      .maybeSingle()
-
-    if (createUserError || !createdUser) {
-      setCreateMessage('ビンゴカード発行に失敗しました')
-      return
-    }
-
-    const { data: createdCardRows, error: createCardError } = await supabase.rpc(
-      'create_bingo_card_for_user',
-      {
-        p_user_id: createdUser.user_id,
-        p_program_code: 'bingo_regular',
-        p_grid_size: 5,
-        p_has_free_center: false,
-        p_note: '管理画面からビンゴ新規発行',
-      }
-    )
-
-    if (createCardError || !createdCardRows || createdCardRows.length === 0) {
-      setCreateMessage('ビンゴカード本体の作成に失敗しました')
-      return
-    }
-
     try {
+      const now = new Date().toISOString()
+      const currentStore = await fetchCurrentStore()
+
+      const { data: createdUser, error: createUserError } = await supabase
+        .from('users')
+        .insert({
+          store_id: currentStore.store_id,
+          display_name: '未登録',
+          status: 'active',
+          updated_at: now,
+        })
+        .select('user_id, display_name, updated_at')
+        .maybeSingle()
+
+      if (createUserError || !createdUser) {
+        throw new Error('ビンゴカード発行に失敗しました')
+      }
+
+      const { data: createdCardRows, error: createCardError } = await supabase.rpc(
+        'create_bingo_card_for_user',
+        {
+          p_user_id: createdUser.user_id,
+          p_program_code: 'bingo_regular',
+          p_grid_size: 5,
+          p_has_free_center: false,
+          p_note: '管理画面からビンゴ新規発行',
+        }
+      )
+
+      if (createCardError || !createdCardRows || createdCardRows.length === 0) {
+        throw new Error('ビンゴカード本体の作成に失敗しました')
+      }
+
       await syncBingoCardImage(createdUser.user_id)
       await loadBingoCard(createdUser.user_id)
+
       setUserId(String(createdUser.user_id))
       setCreateMessage(`ビンゴカード番号 ${createdUser.user_id} を発行しました`)
       setMessage('新規ビンゴカードを発行しました')
@@ -228,7 +297,7 @@ export default function BingoClient() {
       setCreateMessage(
         error instanceof Error
           ? error.message
-          : '発行後の初期化に失敗しました'
+          : 'ビンゴカード発行に失敗しました'
       )
     }
   }
@@ -326,8 +395,62 @@ export default function BingoClient() {
     }
   }
 
-  const openBingoNumber = async () => {
+  const executeCloseBingoNumber = async (targetNumber) => {
+    setOpenMessage('')
+    setCopiedFixed(false)
+    setPreviewMessage('')
+
+    if (!cardRecord) {
+      setOpenMessage('先にビンゴカードを検索してください')
+      return
+    }
+
+    if (!Number.isFinite(targetNumber) || targetNumber <= 0) {
+      setOpenMessage('閉じる番号を入力してください')
+      return
+    }
+
+    const { data, error } = await supabase.rpc('unmark_bingo_number', {
+      p_card_id: cardRecord.card_id,
+      p_number: targetNumber,
+      p_acted_by: 'admin_ui',
+      p_note: 'ビンゴカード管理画面から番号を閉じる',
+    })
+
+    if (error || !data || data.length === 0) {
+      setOpenMessage('番号を閉じる処理に失敗しました')
+      return
+    }
+
+    const result = data[0]
+
+    try {
+      await syncBingoCardImage(cardRecord.user_id)
+      await loadBingoCard(cardRecord.user_id)
+
+      if (result.already_unmarked) {
+        setOpenMessage(`${targetNumber}番はすでに閉じています`)
+      } else {
+        setOpenMessage(`${targetNumber}番を閉じました`)
+      }
+
+      refreshPreview()
+    } catch (reloadError) {
+      setOpenMessage(
+        reloadError instanceof Error
+          ? reloadError.message
+          : '更新後の再読み込みに失敗しました'
+      )
+    }
+  }
+
+  const executeNumberAction = async () => {
     const targetNumber = Number(openNumber)
+
+    if (numberActionMode === 'close') {
+      await executeCloseBingoNumber(targetNumber)
+      return
+    }
 
     const selectedMapping = mappings.find(
       (mapping) => Number(mapping.bingo_number) === targetNumber
@@ -442,6 +565,7 @@ export default function BingoClient() {
     setProductNumber(nextNumber)
     setProductImagePath(nextImagePath)
     setOpenNumber(nextNumber)
+    setNumberActionMode('open')
     setMappingMessage(`「${nextName}」を選択しました。${nextNumber}番を開けます。`)
   }
 
@@ -453,6 +577,7 @@ export default function BingoClient() {
     setProductNumber(String(mapping.bingo_number ?? ''))
     setProductImagePath(mapping.image_path || '')
     setOpenNumber(String(mapping.bingo_number ?? ''))
+    setNumberActionMode('open')
 
     await executeOpenBingoNumber(nextNumber, nextName)
   }
@@ -492,12 +617,6 @@ export default function BingoClient() {
     window.location.href = '/admin/login'
   }
 
-  useEffect(() => {
-    loadMappings().catch(() => {
-      setMappings([])
-    })
-  }, [])
-
   const currentImagePreviewUrl = useMemo(() => {
     const value = productImagePath.trim()
     return value === '' ? '' : value
@@ -520,16 +639,17 @@ export default function BingoClient() {
             <div style={styles.brandMark}>🎯</div>
             <div>
               <h1 style={styles.title}>-Bistro-Bambi</h1>
-              <p style={styles.subtitle}>ビンゴカード管理</p>
+              <p style={styles.subtitle}>ビンゴ カード操作</p>
               <p style={styles.headerDescription}>
-                ビンゴカードの発行、検索、番号開放、商品マッピングを管理します。
+                ビンゴカードを1枚ずつ検索し、番号を開く・閉じる操作や商品マッピングを行います。
               </p>
             </div>
           </div>
 
           <nav style={styles.nav}>
+            <a href="/admin/bingo/customers" style={styles.navButton}>顧客一覧</a>
             <a href="/admin" style={styles.navButton}>管理メニュー</a>
-            <a href="/admin/bingo/manage" style={styles.navButton}>ビンゴ管理</a>
+            <a href="/admin/bingo/manage" style={styles.navButton}>イベント管理</a>
             <button onClick={logout} style={styles.navButton}>ログアウト</button>
           </nav>
         </header>
@@ -612,25 +732,52 @@ export default function BingoClient() {
             <section style={styles.panel}>
               <div style={styles.sectionHead}>
                 <span style={styles.sectionNumber}>04</span>
-                <h2 style={styles.sectionTitle}>番号を開く</h2>
+                <h2 style={styles.sectionTitle}>番号を開く/閉じる</h2>
               </div>
 
               <p style={styles.description}>
-                商品に対応する番号を入力して、該当マスを開きます。
+                対象カードを検索した状態で、番号を開くか閉じるかを選んで操作します。
               </p>
+
+              <div style={styles.modeToggle}>
+                <button
+                  type="button"
+                  onClick={() => setNumberActionMode('open')}
+                  style={{
+                    ...styles.modeButton,
+                    ...(numberActionMode === 'open' ? styles.modeButtonActive : {}),
+                  }}
+                >
+                  開く
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNumberActionMode('close')}
+                  style={{
+                    ...styles.modeButton,
+                    ...(numberActionMode === 'close' ? styles.modeButtonActive : {}),
+                  }}
+                >
+                  閉じる
+                </button>
+              </div>
 
               <div style={styles.formStack}>
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="開ける番号を入力"
+                  placeholder={numberActionMode === 'open' ? '開ける番号を入力' : '閉じる番号を入力'}
                   value={openNumber}
                   onChange={(e) => setOpenNumber(normalizeToHalfWidthNumber(e.target.value))}
                   style={styles.input}
                 />
 
-                <button onClick={openBingoNumber} style={styles.primaryButton}>
-                  番号を開く
+                <button
+                  onClick={executeNumberAction}
+                  style={numberActionMode === 'open' ? styles.primaryButton : styles.dangerWideButton}
+                >
+                  {numberActionMode === 'open' ? '番号を開く' : '番号を閉じる'}
                 </button>
               </div>
             </section>
@@ -1099,6 +1246,27 @@ const styles = {
     flexDirection: 'column',
     gap: '12px',
   },
+  modeToggle: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px',
+    marginBottom: '12px',
+  },
+  modeButton: {
+    padding: '12px 14px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+  },
+  modeButtonActive: {
+    background: theme.green,
+    color: theme.white,
+    border: `1px solid ${theme.green}`,
+  },
   input: {
     width: '100%',
     boxSizing: 'border-box',
@@ -1131,6 +1299,21 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+  },
+  dangerWideButton: {
+    width: '100%',
+    justifyContent: 'center',
+    padding: '13px 16px',
+    fontSize: '15px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.danger,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
   },
   secondaryButton: {
     padding: '12px 16px',
