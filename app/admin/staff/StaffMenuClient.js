@@ -5,16 +5,16 @@ export default function StaffMenuClient() {
     {
       title: '従業員一覧・退職管理',
       icon: '👥',
-      description: '従業員名、在籍状況、退職日、メモを管理します。',
+      description: '従業員名、グレード、在籍状況、退職日、メモを管理します。',
       href: '/admin/staff/employees',
       buttonLabel: '従業員一覧を開く',
     },
     {
-      title: '従業員カード管理',
+      title: '従業員カード操作',
       icon: '📇',
       description: '従業員カードの発行、検索、氏名変更、出勤数の確認・調整を行います。',
       href: '/admin/staff/card',
-      buttonLabel: '従業員カード管理を開く',
+      buttonLabel: '従業員カード操作を開く',
     },
     {
       title: '給与管理',
@@ -22,6 +22,13 @@ export default function StaffMenuClient() {
       description: '給与期間作成、履歴からの給与プレビュー、金庫・牧場情報の保存を行います。',
       href: '/admin/staff/payroll',
       buttonLabel: '給与管理を開く',
+    },
+    {
+      title: '牧場管理',
+      icon: '🌾',
+      description: 'お世話回数、牧場利益入力、給与管理への牧場利益反映を行います。',
+      href: '/admin/staff/ranch',
+      buttonLabel: '牧場管理を開く',
     },
     {
       title: '給与履歴一覧',
@@ -63,7 +70,7 @@ export default function StaffMenuClient() {
               <h1 style={styles.title}>-Bistro-Bambi</h1>
               <p style={styles.subtitle}>従業員管理メニュー</p>
               <p style={styles.headerDescription}>
-                従業員情報、出勤カード、給与計算、給与履歴、月末リセットを管理します。
+                従業員情報、出勤カード、給与計算、牧場管理、給与履歴、月末リセットを管理します。
               </p>
             </div>
           </div>
@@ -107,6 +114,13 @@ export default function StaffMenuClient() {
               <div style={styles.memoLabel}>給与計算</div>
               <p style={styles.memoText}>
                 給与は出勤履歴とスタンプ履歴をもとに、前半・後半で集計します。
+              </p>
+            </div>
+
+            <div style={styles.memoItem}>
+              <div style={styles.memoLabel}>牧場管理</div>
+              <p style={styles.memoText}>
+                牧場のお世話回数と利益入力を管理し、締め時に給与管理へ牧場利益を反映します。
               </p>
             </div>
 

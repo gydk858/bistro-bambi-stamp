@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
 const DEFAULT_PREVIOUS_VAULT_AFTER_AMOUNT = '2019102555'
+const DEFAULT_RANCH_UNIT_CARE_PAY = 3000000
 
 export default function PayrollClient() {
   const now = new Date()
@@ -33,11 +34,57 @@ export default function PayrollClient() {
   const [periodMemo, setPeriodMemo] = useState('')
   const [periodSummary, setPeriodSummary] = useState(null)
 
+  const [ranchPayrollLink, setRanchPayrollLink] = useState(null)
+  const [ranchCareEvents, setRanchCareEvents] = useState([])
+  const [ranchUnitCarePay, setRanchUnitCarePay] = useState(DEFAULT_RANCH_UNIT_CARE_PAY)
+
   const selectedPeriod = useMemo(() => {
     return periods.find((p) => String(p.payroll_period_id) === String(selectedPeriodId))
   }, [periods, selectedPeriodId])
 
   const isSelectedPeriodLocked = selectedPeriod?.status === 'locked'
+
+  const selectedRateRuleSet = useMemo(() => {
+    return rateRuleSets.find(
+      (ruleSet) => String(ruleSet.payroll_rate_rule_set_id) === String(selectedRateRuleSetId)
+    )
+  }, [rateRuleSets, selectedRateRuleSetId])
+
+  const ranchCareMap = useMemo(() => {
+    const map = {}
+
+    ranchCareEvents.forEach((event) => {
+      const key = String(event.user_id)
+      map[key] = (map[key] || 0) + Number(event.care_count || 0)
+    })
+
+    return map
+  }, [ranchCareEvents])
+
+  const getRanchCareCount = (item) => {
+    return ranchCareMap[String(item.user_id)] || 0
+  }
+
+  const getRanchCarePayAmount = (item) => {
+    return getRanchCareCount(item) * Number(ranchUnitCarePay || 0)
+  }
+
+  const getTotalCalculatedPayAmount = (item) => {
+    return Number(item.calculated_pay_amount || 0) + getRanchCarePayAmount(item)
+  }
+
+  const getTotalTransferAmount = (item) => {
+    return Number(item.transfer_amount || 0) + getRanchCarePayAmount(item)
+  }
+
+  const baseTotalCalculatedPayAmount = runItems.reduce((sum, item) => sum + Number(item.calculated_pay_amount || 0), 0)
+  const baseTotalTransferAmount = runItems.reduce((sum, item) => sum + Number(item.transfer_amount || 0), 0)
+  const totalAdjustmentAmount = runItems.reduce((sum, item) => sum + Number(item.adjustment_amount || 0), 0)
+
+  const totalRanchCareCount = runItems.reduce((sum, item) => sum + getRanchCareCount(item), 0)
+  const totalRanchCarePayAmount = runItems.reduce((sum, item) => sum + getRanchCarePayAmount(item), 0)
+  const totalCalculatedPayAmount = baseTotalCalculatedPayAmount + totalRanchCarePayAmount
+  const totalTransferAmount = baseTotalTransferAmount + totalRanchCarePayAmount
 
   const canLockSelectedPeriod =
     Boolean(selectedPeriodId) &&
@@ -54,17 +101,6 @@ export default function PayrollClient() {
     : !periodSummary
     ? '先に金庫・牧場・備考の「入力内容を保存」をしてください'
     : ''
-
-  const selectedRateRuleSet = useMemo(() => {
-    return rateRuleSets.find(
-      (ruleSet) => String(ruleSet.payroll_rate_rule_set_id) === String(selectedRateRuleSetId)
-    )
-  }, [rateRuleSets, selectedRateRuleSetId])
-
-  const totalAttendanceCount = runItems.reduce((sum, item) => sum + Number(item.attendance_count || 0), 0)
-  const totalCalculatedPayAmount = runItems.reduce((sum, item) => sum + Number(item.calculated_pay_amount || 0), 0)
-  const totalTransferAmount = runItems.reduce((sum, item) => sum + Number(item.transfer_amount || 0), 0)
-  const totalAdjustmentAmount = runItems.reduce((sum, item) => sum + Number(item.adjustment_amount || 0), 0)
 
   useEffect(() => {
     initialize()
@@ -229,13 +265,18 @@ export default function PayrollClient() {
         ? String(selectedPeriodId)
         : String(nextPeriods[0].payroll_period_id)
 
+      const nextSelectedPeriod = nextPeriods.find((p) => String(p.payroll_period_id) === String(nextSelectedPeriodId))
+
       setSelectedPeriodId(nextSelectedPeriodId)
       await fetchPayrollRunItems(nextSelectedPeriodId)
       await fetchPayrollInputsAndSummary(nextSelectedPeriodId)
+      await fetchRanchCareForPeriod(nextSelectedPeriod)
     } else {
       setSelectedPeriodId('')
       setRunItems([])
       setItemEdits({})
+      setRanchPayrollLink(null)
+      setRanchCareEvents([])
       resetPayrollInputsAndSummary()
     }
 
@@ -287,6 +328,93 @@ export default function PayrollClient() {
     return nextItems
   }
 
+  const fetchRanchPayrollLink = async (periodId = selectedPeriodId) => {
+    if (!periodId) {
+      setRanchPayrollLink(null)
+      return null
+    }
+
+    const { data, error } = await supabase
+      .from('ranch_payroll_links')
+      .select(`
+        ranch_payroll_link_id,
+        payroll_period_id,
+        store_id,
+        target_year,
+        target_month,
+        half_type,
+        period_start,
+        period_end,
+        ranch_profit_amount,
+        applied_at,
+        applied_by,
+        memo
+      `)
+      .eq('payroll_period_id', Number(periodId))
+      .order('applied_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error(error)
+      setRanchPayrollLink(null)
+      return null
+    }
+
+    setRanchPayrollLink(data || null)
+    return data || null
+  }
+
+  const fetchRanchCareForPeriod = async (period = selectedPeriod) => {
+    if (!period?.store_id || !period?.period_start || !period?.period_end) {
+      setRanchCareEvents([])
+      setRanchUnitCarePay(DEFAULT_RANCH_UNIT_CARE_PAY)
+      return []
+    }
+
+    const { data: settingData, error: settingError } = await supabase
+      .from('ranch_month_settings')
+      .select('unit_care_pay')
+      .eq('store_id', Number(period.store_id))
+      .eq('target_year', Number(period.target_year))
+      .eq('target_month', Number(period.target_month))
+      .maybeSingle()
+
+    if (settingError) {
+      console.error(settingError)
+      setRanchUnitCarePay(DEFAULT_RANCH_UNIT_CARE_PAY)
+    } else {
+      setRanchUnitCarePay(Number(settingData?.unit_care_pay ?? DEFAULT_RANCH_UNIT_CARE_PAY))
+    }
+
+    const { data, error } = await supabase
+      .from('ranch_care_events')
+      .select(`
+        ranch_care_event_id,
+        store_id,
+        user_id,
+        target_year,
+        target_month,
+        care_date,
+        care_count,
+        note
+      `)
+      .eq('store_id', Number(period.store_id))
+      .gte('care_date', formatDate(period.period_start))
+      .lte('care_date', formatDate(period.period_end))
+      .order('care_date', { ascending: true })
+
+    if (error) {
+      console.error(error)
+      setRanchCareEvents([])
+      setMessage(`牧場お世話情報の取得に失敗しました: ${error.message}`)
+      return []
+    }
+
+    setRanchCareEvents(data || [])
+    return data || []
+  }
+
   const fetchPreviousVaultAfterAmount = async (periodId) => {
     if (!periodId) {
       setPreviousVaultAfterAmount(DEFAULT_PREVIOUS_VAULT_AFTER_AMOUNT)
@@ -326,6 +454,7 @@ export default function PayrollClient() {
   const fetchPayrollInputsAndSummary = async (periodId = selectedPeriodId) => {
     if (!periodId) {
       resetPayrollInputsAndSummary()
+      setRanchPayrollLink(null)
       return
     }
 
@@ -383,10 +512,12 @@ export default function PayrollClient() {
       return
     }
 
+    const ranchLink = await fetchRanchPayrollLink(periodId)
+
     setPreviousVaultAfterAmount(autoPreviousVaultAfterAmount)
 
     if (inputData) {
-      setRanchProfitAmount(String(inputData.ranch_profit_amount ?? 0))
+      setRanchProfitAmount(String(inputData.ranch_profit_amount ?? ranchLink?.ranch_profit_amount ?? 0))
       setVaultBeforeAmount(String(inputData.vault_before_amount ?? 0))
       setExtraIncomeAmount(String(inputData.extra_income_amount ?? 0))
       setPeriodMemo(inputData.memo || '')
@@ -395,7 +526,7 @@ export default function PayrollClient() {
         setSelectedRateRuleSetId(String(inputData.payroll_rate_rule_set_id))
       }
     } else {
-      setRanchProfitAmount('0')
+      setRanchProfitAmount(String(ranchLink?.ranch_profit_amount ?? 0))
       setVaultBeforeAmount('0')
       setExtraIncomeAmount('0')
       setPeriodMemo('')
@@ -448,6 +579,10 @@ export default function PayrollClient() {
   const getSelectedRateRuleSetIdForRpc = () => {
     if (!selectedRateRuleSetId) return null
     return Number(selectedRateRuleSetId)
+  }
+
+  const getRanchProfitAmountForSave = () => {
+    return toAmountNumber(ranchPayrollLink?.ranch_profit_amount ?? ranchProfitAmount)
   }
 
   const createPayrollPeriods = async () => {
@@ -531,6 +666,7 @@ export default function PayrollClient() {
 
       await fetchPayrollRunItems(selectedPeriodId)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
+      await fetchRanchCareForPeriod(selectedPeriod)
 
       setMessage('履歴から給与プレビューを生成しました。選択した単価ルールもこの給与期間に保存しました。')
     } catch (error) {
@@ -560,7 +696,7 @@ export default function PayrollClient() {
         p_payroll_period_id: Number(selectedPeriodId),
         p_payroll_rate_rule_set_id: getSelectedRateRuleSetIdForRpc(),
         p_sales_amount: toAmountNumber(previousVaultAfterAmount),
-        p_ranch_profit_amount: toAmountNumber(ranchProfitAmount),
+        p_ranch_profit_amount: getRanchProfitAmountForSave(),
         p_vault_before_amount: toAmountNumber(vaultBeforeAmount),
         p_extra_income_amount: toAmountNumber(extraIncomeAmount),
         p_memo: periodMemo.trim() === '' ? null : periodMemo.trim(),
@@ -570,6 +706,7 @@ export default function PayrollClient() {
 
       await fetchPayrollInputsAndSummary(selectedPeriodId)
       await fetchPayrollRunItems(selectedPeriodId)
+      await fetchRanchCareForPeriod(selectedPeriod)
 
       setMessage('金庫・牧場・備考を保存しました')
     } catch (error) {
@@ -582,32 +719,39 @@ export default function PayrollClient() {
 
   const saveRunItemAdjustment = async (item) => {
     if (isSelectedPeriodLocked || item.is_locked) {
-      setMessage('この給与期間は確定済みのため、個別調整を保存できません。修正する場合は先にロック解除してください。')
       return
     }
 
     const edit = itemEdits[item.payroll_run_item_id]
     if (!edit) return
 
+    const nextAdjustmentAmount = toAmountNumber(edit.adjustmentAmount)
+    const currentAdjustmentAmount = Number(item.adjustment_amount ?? 0)
+
+    if (nextAdjustmentAmount === currentAdjustmentAmount) {
+      return
+    }
+
     setLoading(true)
-    setMessage(`${item.staff_code} の調整内容を保存中です...`)
+    setMessage(`${item.staff_code} の調整額を保存中です...`)
 
     try {
       const { error } = await supabase.rpc('update_payroll_run_item_adjustment', {
         p_payroll_run_item_id: Number(item.payroll_run_item_id),
-        p_adjustment_amount: toAmountNumber(edit.adjustmentAmount),
-        p_note: edit.note.trim() === '' ? null : edit.note.trim(),
+        p_adjustment_amount: nextAdjustmentAmount,
+        p_note: item.note || null,
       })
 
       if (error) throw error
 
       await fetchPayrollRunItems(selectedPeriodId)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
+      await fetchRanchCareForPeriod(selectedPeriod)
 
-      setMessage(`${item.staff_code} の調整内容を保存しました`)
+      setMessage(`${item.staff_code} の調整額を保存しました`)
     } catch (error) {
       console.error(error)
-      setMessage(`調整内容の保存に失敗しました: ${error.message}`)
+      setMessage(`調整額の保存に失敗しました: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -665,6 +809,7 @@ export default function PayrollClient() {
 
       await fetchPayrollRunItems(selectedPeriodId)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
+      await fetchRanchCareForPeriod(selectedPeriod)
 
       const result = Array.isArray(data) && data.length > 0 ? data[0] : null
       setMessage(
@@ -723,6 +868,7 @@ export default function PayrollClient() {
 
       await fetchPayrollRunItems(selectedPeriodId)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
+      await fetchRanchCareForPeriod(selectedPeriod)
 
       const result = Array.isArray(data) && data.length > 0 ? data[0] : null
       setMessage(
@@ -749,9 +895,12 @@ export default function PayrollClient() {
   }
 
   const handlePeriodChange = async (value) => {
+    const nextPeriod = periods.find((period) => String(period.payroll_period_id) === String(value))
+
     setSelectedPeriodId(value)
     await fetchPayrollRunItems(value)
     await fetchPayrollInputsAndSummary(value)
+    await fetchRanchCareForPeriod(nextPeriod)
   }
 
   const reloadCurrentMonth = async () => {
@@ -791,6 +940,13 @@ export default function PayrollClient() {
     return String(value).slice(0, 10)
   }
 
+  const formatDateTime = (value) => {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 19).replace('T', ' ')
+    return date.toLocaleString('ja-JP')
+  }
+
   const formatMoney = (value) => {
     if (value === null || value === undefined || value === '') return '-'
     return Number(value).toLocaleString()
@@ -821,6 +977,13 @@ export default function PayrollClient() {
     return status || '-'
   }
 
+  const HeaderTwoLine = ({ top, bottom }) => (
+    <span style={styles.headerTwoLine}>
+      <span>{top}</span>
+      <span>{bottom}</span>
+    </span>
+  )
+
   if (initialLoading) {
     return (
       <div style={styles.page}>
@@ -848,6 +1011,9 @@ export default function PayrollClient() {
           </div>
 
           <nav style={styles.nav}>
+            <Link href="/admin/staff/ranch" style={styles.navButton}>
+              牧場管理
+            </Link>
             <Link href="/admin/staff/payroll/history" style={styles.navButton}>
               給与履歴一覧
             </Link>
@@ -1057,8 +1223,8 @@ export default function PayrollClient() {
             <section style={styles.summaryGrid}>
               <SummaryCard label="選択期間" value={selectedPeriod ? getPeriodTypeLabel(selectedPeriod.half_type) : '-'} sub={selectedPeriod ? `${formatDate(selectedPeriod.period_start)} ～ ${formatDate(selectedPeriod.period_end)}` : '給与期間を選択してください'} />
               <SummaryCard label="状態" value={selectedPeriod ? getPeriodStatusLabel(selectedPeriod.status) : '-'} sub={isSelectedPeriodLocked ? '支払い確認済み・編集不可' : '編集中・保存可能'} />
-              <SummaryCard label="総支給額" value={formatMoney(totalCalculatedPayAmount)} sub={`総出勤数 ${totalAttendanceCount}`} />
-              <SummaryCard label="振込額合計" value={formatMoney(totalTransferAmount)} sub={`調整額 ${formatMoney(totalAdjustmentAmount)}`} />
+              <SummaryCard label="総支給額" value={formatMoney(totalCalculatedPayAmount)} sub={`通常 ${formatMoney(baseTotalCalculatedPayAmount)} / 牧場 ${formatMoney(totalRanchCarePayAmount)}`} />
+              <SummaryCard label="振込額合計" value={formatMoney(totalTransferAmount)} sub={`調整額 ${formatMoney(totalAdjustmentAmount)} / 牧場回数 ${totalRanchCareCount}`} />
             </section>
 
             <section style={isSelectedPeriodLocked ? styles.lockPanel : styles.panel}>
@@ -1117,8 +1283,13 @@ export default function PayrollClient() {
                 <div>
                   <h2 style={styles.mainTitle}>給与プレビュー</h2>
                   <p style={styles.mainDescription}>
-                    Discordまたは管理画面の出勤履歴とスタンプ履歴から、支給額を確認します。
+                    出勤履歴・スタンプ履歴・牧場お世話記録から、支給額を確認します。
                   </p>
+                </div>
+
+                <div style={styles.previewInfoBox}>
+                  <div style={styles.previewInfoLabel}>牧場お世話単価</div>
+                  <div style={styles.previewInfoValue}>{formatMoney(ranchUnitCarePay)}</div>
                 </div>
               </div>
 
@@ -1131,20 +1302,36 @@ export default function PayrollClient() {
               ) : (
                 <div style={styles.tableWrap}>
                   <table style={styles.table}>
+                    <colgroup>
+                      <col style={{ width: '82px' }} />
+                      <col style={{ width: '110px' }} />
+                      <col style={{ width: '58px' }} />
+                      <col style={{ width: '72px' }} />
+                      <col style={{ width: '82px' }} />
+                      <col style={{ width: '88px' }} />
+                      <col style={{ width: '58px' }} />
+                      <col style={{ width: '88px' }} />
+                      <col style={{ width: '88px' }} />
+                      <col style={{ width: '86px' }} />
+                      <col style={{ width: '92px' }} />
+                    </colgroup>
+
                     <thead>
                       <tr>
-                        <th style={styles.th}>従業員コード</th>
+                        <th style={styles.th}>コード</th>
                         <th style={styles.th}>氏名</th>
-                        <th style={styles.th}>出勤数</th>
-                        <th style={styles.th}>締め日時点スタンプ数</th>
-                        <th style={styles.th}>適用単価</th>
-                        <th style={styles.th}>計算支給額</th>
-                        <th style={styles.th}>調整額</th>
-                        <th style={styles.th}>振込額</th>
-                        <th style={styles.th}>個別備考</th>
-                        <th style={styles.th}>保存</th>
+                        <th style={styles.th}>出勤</th>
+                        <th style={styles.th}><HeaderTwoLine top="締め時" bottom="スタンプ" /></th>
+                        <th style={styles.th}>単価</th>
+                        <th style={styles.th}><HeaderTwoLine top="通常" bottom="支給" /></th>
+                        <th style={styles.th}><HeaderTwoLine top="牧場" bottom="回数" /></th>
+                        <th style={styles.th}><HeaderTwoLine top="牧場" bottom="支給" /></th>
+                        <th style={styles.th}><HeaderTwoLine top="支給" bottom="合計" /></th>
+                        <th style={styles.th}>調整</th>
+                        <th style={styles.transferTh}><HeaderTwoLine top="振込" bottom="合計" /></th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {runItems.map((item) => {
                         const edit = itemEdits[item.payroll_run_item_id] || {
@@ -1153,6 +1340,10 @@ export default function PayrollClient() {
                         }
 
                         const rowLocked = isSelectedPeriodLocked || item.is_locked
+                        const ranchCareCount = getRanchCareCount(item)
+                        const ranchCarePayAmount = getRanchCarePayAmount(item)
+                        const totalPayAmount = getTotalCalculatedPayAmount(item)
+                        const totalTransfer = getTotalTransferAmount(item)
 
                         return (
                           <tr key={item.payroll_run_item_id}>
@@ -1162,6 +1353,9 @@ export default function PayrollClient() {
                             <td style={styles.tdCenter}>{item.stamp_count_at_close}</td>
                             <td style={styles.td}>{formatMoney(item.applied_unit_pay)}</td>
                             <td style={styles.tdStrong}>{formatMoney(item.calculated_pay_amount)}</td>
+                            <td style={styles.tdCenter}>{ranchCareCount}</td>
+                            <td style={styles.tdStrong}>{formatMoney(ranchCarePayAmount)}</td>
+                            <td style={styles.tdStrong}>{formatMoney(totalPayAmount)}</td>
                             <td style={styles.td}>
                               <input
                                 type="text"
@@ -1174,39 +1368,19 @@ export default function PayrollClient() {
                                     .replace(/[^\d-]/g, '')
                                   updateItemEdit(item.payroll_run_item_id, 'adjustmentAmount', value)
                                 }}
+                                onBlur={() => saveRunItemAdjustment(item)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.currentTarget.blur()
+                                  }
+                                }}
                                 style={{
                                   ...styles.smallInput,
                                   ...(rowLocked ? styles.disabledInput : {}),
                                 }}
                               />
                             </td>
-                            <td style={styles.tdStrong}>{formatMoney(item.transfer_amount)}</td>
-                            <td style={styles.td}>
-                              <input
-                                type="text"
-                                value={edit.note}
-                                disabled={rowLocked}
-                                onChange={(e) => updateItemEdit(item.payroll_run_item_id, 'note', e.target.value)}
-                                style={{
-                                  ...styles.noteInput,
-                                  ...(rowLocked ? styles.disabledInput : {}),
-                                }}
-                                placeholder="個別メモ"
-                              />
-                            </td>
-                            <td style={styles.td}>
-                              <button
-                                type="button"
-                                onClick={() => saveRunItemAdjustment(item)}
-                                disabled={loading || rowLocked}
-                                style={{
-                                  ...styles.miniButton,
-                                  ...((loading || rowLocked) ? styles.disabledButton : {}),
-                                }}
-                              >
-                                {rowLocked ? '確定済' : '保存'}
-                              </button>
-                            </td>
+                            <td style={styles.transferTd}>{formatMoney(totalTransfer)}</td>
                           </tr>
                         )
                       })}
@@ -1222,9 +1396,13 @@ export default function PayrollClient() {
                   <div>
                     <h2 style={styles.mainTitle}>金庫・牧場・備考</h2>
                     <p style={styles.mainDescription}>
-                      前回支払い後の金庫額、今回支払い前の金庫額、牧場利益、イベント等のメモを保存します。
+                      前回支払い後の金庫額、今回支払い前の金庫額、牧場管理から反映された牧場利益、イベント等のメモを保存します。
                     </p>
                   </div>
+
+                  <Link href="/admin/staff/ranch" style={styles.headerLinkButton}>
+                    牧場管理を開く
+                  </Link>
                 </div>
 
                 <div style={styles.formGridTwo}>
@@ -1240,17 +1418,18 @@ export default function PayrollClient() {
                   </label>
 
                   <label>
-                    <div style={styles.inputLabel}>牧場利益</div>
+                    <div style={styles.inputLabel}>牧場利益（牧場管理から反映）</div>
                     <input
                       type="text"
-                      value={ranchProfitAmount}
-                      onChange={handleAmountChange(setRanchProfitAmount)}
-                      disabled={isSelectedPeriodLocked}
-                      style={{
-                        ...styles.input,
-                        ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
-                      }}
+                      value={formatMoney(ranchPayrollLink?.ranch_profit_amount ?? ranchProfitAmount)}
+                      readOnly
+                      style={styles.readOnlyInput}
                     />
+                    <p style={styles.autoNote}>
+                      {ranchPayrollLink
+                        ? `最終反映: ${formatDateTime(ranchPayrollLink.applied_at)}`
+                        : 'まだ牧場管理から反映されていません。'}
+                    </p>
                   </label>
 
                   <label>
@@ -1329,8 +1508,11 @@ export default function PayrollClient() {
 
                 {periodSummary ? (
                   <div style={styles.summaryList}>
-                    <SummaryLine label="総支払額" value={formatMoney(periodSummary.total_pay_amount)} />
-                    <SummaryLine label="振込額合計" value={formatMoney(periodSummary.total_transfer_amount)} />
+                    <SummaryLine label="通常支給額" value={formatMoney(baseTotalCalculatedPayAmount)} />
+                    <SummaryLine label="牧場お世話支給額" value={formatMoney(totalRanchCarePayAmount)} />
+                    <SummaryLine label="総支給額" value={formatMoney(totalCalculatedPayAmount)} />
+                    <SummaryLine label="振込額合計" value={formatMoney(totalTransferAmount)} />
+                    <SummaryLine label="調整額合計" value={formatMoney(totalAdjustmentAmount)} />
                     <SummaryLine label="牧場利益" value={formatMoney(periodSummary.ranch_profit_amount)} />
                     <SummaryLine label="今回の支払い前金庫額" value={formatMoney(periodSummary.vault_before_amount)} />
                     <SummaryLine label="金庫 + 牧場" value={formatMoney(periodSummary.vault_plus_ranch_amount)} />
@@ -1387,6 +1569,8 @@ const theme = {
   white: '#ffffff',
   danger: '#8f5b50',
   dangerPale: '#f3ece9',
+  transferBg: '#e7f0e3',
+  transferBorder: '#aac2a5',
 }
 
 const styles = {
@@ -1542,6 +1726,38 @@ const styles = {
     color: theme.muted,
     lineHeight: 1.7,
     margin: '6px 0 0',
+  },
+  headerLinkButton: {
+    padding: '11px 14px',
+    fontSize: '14px',
+    fontWeight: 900,
+    borderRadius: '12px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.deep,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    whiteSpace: 'nowrap',
+  },
+  previewInfoBox: {
+    background: theme.white,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '14px',
+    padding: '10px 12px',
+    minWidth: '160px',
+  },
+  previewInfoLabel: {
+    fontSize: '11px',
+    color: theme.muted,
+    fontWeight: 900,
+    marginBottom: '5px',
+  },
+  previewInfoValue: {
+    fontSize: '18px',
+    color: theme.deep,
+    fontWeight: 950,
   },
   infoList: {
     display: 'flex',
@@ -1876,73 +2092,87 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    minWidth: '1250px',
+    tableLayout: 'fixed',
+    minWidth: '1014px',
   },
   th: {
     background: theme.pale,
     color: theme.deep,
     textAlign: 'left',
-    padding: '13px 14px',
+    padding: '10px 8px',
     borderBottom: `1px solid ${theme.border2}`,
-    whiteSpace: 'nowrap',
-    fontSize: '13px',
+    whiteSpace: 'normal',
+    fontSize: '12px',
     fontWeight: 900,
+    lineHeight: 1.25,
+  },
+  transferTh: {
+    background: theme.transferBg,
+    color: theme.deep,
+    textAlign: 'left',
+    padding: '10px 8px',
+    borderBottom: `1px solid ${theme.transferBorder}`,
+    whiteSpace: 'normal',
+    fontSize: '12px',
+    fontWeight: 950,
+    lineHeight: 1.25,
+  },
+  headerTwoLine: {
+    display: 'inline-flex',
+    flexDirection: 'column',
+    gap: '2px',
+    lineHeight: 1.15,
   },
   td: {
-    padding: '13px 14px',
+    padding: '11px 8px',
     borderBottom: `1px solid ${theme.border}`,
     whiteSpace: 'nowrap',
-    fontSize: '14px',
+    fontSize: '13px',
     color: theme.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   tdStrong: {
-    padding: '13px 14px',
+    padding: '11px 8px',
     borderBottom: `1px solid ${theme.border}`,
     whiteSpace: 'nowrap',
-    fontSize: '14px',
+    fontSize: '13px',
     color: theme.deep,
     fontWeight: 900,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   tdCenter: {
-    padding: '13px 14px',
+    padding: '11px 8px',
     borderBottom: `1px solid ${theme.border}`,
     whiteSpace: 'nowrap',
-    fontSize: '14px',
+    fontSize: '13px',
     color: theme.text,
     textAlign: 'center',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  transferTd: {
+    padding: '11px 8px',
+    borderBottom: `1px solid ${theme.transferBorder}`,
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    color: theme.deep,
+    background: theme.transferBg,
+    fontWeight: 950,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   smallInput: {
-    width: '110px',
+    width: '74px',
     boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.text,
-    outline: 'none',
-  },
-  noteInput: {
-    width: '180px',
-    boxSizing: 'border-box',
-    padding: '9px 10px',
-    fontSize: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${theme.border2}`,
-    background: theme.white,
-    color: theme.text,
-    outline: 'none',
-  },
-  miniButton: {
-    padding: '9px 12px',
+    padding: '8px 8px',
     fontSize: '13px',
-    fontWeight: 900,
-    borderRadius: '10px',
-    border: 'none',
-    background: theme.green,
-    color: theme.white,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
+    borderRadius: '9px',
+    border: `1px solid ${theme.border2}`,
+    background: theme.white,
+    color: theme.text,
+    outline: 'none',
   },
   bottomGrid: {
     display: 'grid',

@@ -78,6 +78,12 @@ function buildPanelPayload(card, description = "操作パネルです。") {
           },
           {
             type: 2,
+            style: 4,
+            label: "番号を閉じる",
+            custom_id: `bingo:close:${card.user_id}`,
+          },
+          {
+            type: 2,
             style: 1,
             label: "名前変更",
             custom_id: `bingo:name:${card.user_id}`,
@@ -276,6 +282,40 @@ async function processOpenNumber({ req, userId, number, actedBy }) {
   };
 }
 
+async function processCloseNumber({ req, userId, number, actedBy }) {
+  const supabase = createSupabaseClient();
+  const card = await getBingoCardOrThrow(supabase, userId);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new Error("閉じる番号を確認してください。");
+  }
+
+  const { data: rpcResult, error: rpcError } = await supabase.rpc(
+    "unmark_bingo_number",
+    {
+      p_card_id: card.card_id,
+      p_number: number,
+      p_acted_by: actedBy ?? "discord_bot",
+      p_note: "Discord bot から番号を閉じる",
+    }
+  );
+
+  if (rpcError || !rpcResult || rpcResult.length === 0) {
+    throw new Error("番号を閉じる処理に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  const result = rpcResult[0];
+
+  await syncBingoCard(req, userId);
+
+  const updatedCard = await getBingoCardOrThrow(supabase, userId);
+
+  return {
+    card: updatedCard,
+    alreadyUnmarked: Boolean(result.already_unmarked),
+  };
+}
+
 async function createCard({ req, name, actedBy }) {
   const supabase = createSupabaseClient();
   const trimmedName = typeof name === "string" ? name.trim() : "";
@@ -418,6 +458,35 @@ export async function POST(req) {
       });
     }
 
+    if (customId.startsWith("bingo:close:")) {
+      const userId = customId.split(":")[2];
+
+      return Response.json({
+        type: 9,
+        data: {
+          custom_id: `bingo_close_modal:${userId}`,
+          title: "番号を閉じる",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 4,
+                  custom_id: "close_number_input",
+                  label: "閉じる番号",
+                  style: 1,
+                  min_length: 1,
+                  max_length: 2,
+                  required: true,
+                  placeholder: "例: 7",
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+
     return new Response("Unhandled component", { status: 400 });
   }
 
@@ -528,6 +597,48 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
+      if (customId.startsWith("bingo_close_modal:")) {
+        const userId = Number(customId.split(":")[1]);
+
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "入力内容を読み取れませんでした。もう一度お試しください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const rows = body.data?.components ?? [];
+        const firstInput = rows?.[0]?.components?.[0];
+        const rawNumber = firstInput?.value ?? "";
+        const number = Number(String(rawNumber).trim());
+
+        if (!Number.isFinite(number)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "閉じる番号を確認してください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const result = await processCloseNumber({
+          req,
+          userId,
+          number,
+          actedBy: operatorName,
+        });
+
+        const description = result.alreadyUnmarked
+          ? `${number}番はすでに閉じています。`
+          : `${operatorName} さんが ${number}番を閉じました。`;
+
+        await editOriginalResponse(
+          applicationId,
+          interactionToken,
+          buildPanelPayload(result.card, description)
+        );
+
+        return new Response(null, { status: 202 });
+      }
+
       await editOriginalResponse(applicationId, interactionToken, {
         content: "入力内容を読み取れませんでした。もう一度お試しください。",
       });
@@ -599,7 +710,7 @@ export async function POST(req) {
         interactionToken,
         buildPanelPayload(
           newCard,
-          `${operatorName} さんが新しいビンゴカードを発行しました。パネルから番号開放・氏名変更ができます。`
+          `${operatorName} さんが新しいビンゴカードを発行しました。パネルから番号開放・番号戻し・氏名変更ができます。`
         )
       );
 
