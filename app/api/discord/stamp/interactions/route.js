@@ -83,6 +83,27 @@ function getJstWorkDateString(date = new Date()) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function getMonthRangeFromWorkDateString(workDateString) {
+  const year = Number(String(workDateString).slice(0, 4));
+  const month = Number(String(workDateString).slice(5, 7));
+
+  const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDate = new Date(Date.UTC(year, month, 0));
+  const lastDay = String(lastDate.getUTCDate()).padStart(2, "0");
+  const lastDayString = `${year}-${String(month).padStart(2, "0")}-${lastDay}`;
+
+  return {
+    year,
+    month,
+    firstDay,
+    lastDay: lastDayString,
+  };
+}
+
+function getCurrentWorkMonthRange() {
+  return getMonthRangeFromWorkDateString(getJstWorkDateString());
+}
+
 function buildMainEmbed(card, description = "") {
   return {
     embeds: [
@@ -118,6 +139,14 @@ function buildMainEmbed(card, description = "") {
 }
 
 function buildStaffEmbed(card, description = "") {
+  const attendanceCount =
+    card.monthly_attendance_count ??
+    card.attendance_count ??
+    card.current_count ??
+    0;
+
+  const maxCount = card.max_count ?? DEFAULT_STAFF_MAX_COUNT;
+
   return {
     embeds: [
       {
@@ -132,9 +161,7 @@ function buildStaffEmbed(card, description = "") {
           },
           {
             name: "現在の出勤数",
-            value: `${String(card.current_count ?? 0)} / ${String(
-              card.max_count ?? DEFAULT_STAFF_MAX_COUNT
-            )}`,
+            value: `${String(attendanceCount)} / ${String(maxCount)}`,
             inline: true,
           },
         ],
@@ -279,6 +306,91 @@ function createSupabaseClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+async function getStaffMonthlyAttendanceCount(supabase, userId) {
+  const range = getCurrentWorkMonthRange();
+
+  const { data, error } = await supabase
+    .from("staff_attendance_events")
+    .select("amount")
+    .eq("user_id", Number(userId))
+    .gte("work_date", range.firstDay)
+    .lte("work_date", range.lastDay);
+
+  if (error) {
+    throw new Error(`月内出勤数の取得に失敗しました: ${error.message}`);
+  }
+
+  const total = (data || []).reduce((sum, row) => {
+    return sum + Number(row.amount || 0);
+  }, 0);
+
+  return Math.max(0, total);
+}
+
+async function attachStaffMonthlyAttendanceCount(supabase, card) {
+  if (!card) return card;
+
+  const monthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
+    supabase,
+    card.user_id
+  );
+
+  return {
+    ...card,
+    monthly_attendance_count: monthlyAttendanceCount,
+  };
+}
+
+async function syncStaffCardVisualCountFromAttendance({
+  supabase,
+  card,
+  monthlyAttendanceCount,
+  action,
+  actedBy,
+}) {
+  const maxCount = Number(card.max_count ?? DEFAULT_STAFF_MAX_COUNT);
+  const beforeCount = Number(card.current_count ?? 0);
+  const nextVisualCount = Math.min(Math.max(Number(monthlyAttendanceCount || 0), 0), maxCount);
+  const now = new Date().toISOString();
+
+  const actionType = action === "add" ? "add" : "remove";
+  const amount = action === "add" ? 1 : -1;
+
+  const { error: historyError } = await supabase
+    .from("stamp_histories")
+    .insert({
+      card_id: Number(card.card_id),
+      action_type: actionType,
+      amount,
+      before_count: beforeCount,
+      after_count: nextVisualCount,
+      acted_by: actedBy ?? "discord_staff_bot",
+      reason:
+        action === "add"
+          ? "Discord bot から出勤数追加"
+          : "Discord bot から出勤数減算",
+      acted_at: now,
+    });
+
+  if (historyError) {
+    throw new Error(`従業員カード履歴の保存に失敗しました: ${historyError.message}`);
+  }
+
+  const { error: updateError } = await supabase
+    .from("stamp_cards")
+    .update({
+      current_count: nextVisualCount,
+      completed_at: nextVisualCount >= maxCount ? now : null,
+      last_stamped_at: now,
+      updated_at: now,
+    })
+    .eq("card_id", Number(card.card_id));
+
+  if (updateError) {
+    throw new Error(`従業員カード表示数の更新に失敗しました: ${updateError.message}`);
+  }
+}
+
 async function hasArchivedStampCardByUserId(supabase, userId) {
   const { data, error } = await supabase
     .from("cards")
@@ -344,6 +456,11 @@ async function getStaffCardByUserIdOrThrow(supabase, userId) {
   return card;
 }
 
+async function getStaffCardWithMonthlyCountByUserIdOrThrow(supabase, userId) {
+  const card = await getStaffCardByUserIdOrThrow(supabase, userId);
+  return await attachStaffMonthlyAttendanceCount(supabase, card);
+}
+
 async function getStaffCardByCodeOrThrow(supabase, staffCode) {
   const normalizedCode = String(staffCode ?? "").trim();
 
@@ -364,6 +481,11 @@ async function getStaffCardByCodeOrThrow(supabase, staffCode) {
   }
 
   return card;
+}
+
+async function getStaffCardWithMonthlyCountByCodeOrThrow(supabase, staffCode) {
+  const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
+  return await attachStaffMonthlyAttendanceCount(supabase, card);
 }
 
 async function assertActiveStaffEmployeeByUserId(supabase, userId) {
@@ -508,25 +630,6 @@ async function processStaffAction({ req, userId, action, actedBy }) {
 
   await assertActiveStaffEmployeeByUserId(supabase, userId);
 
-  const diff = action === "add" ? 1 : -1;
-
-  const { data: rpcResult, error: rpcError } = await supabase.rpc(
-    "increment_stamp_card",
-    {
-      p_card_id: card.card_id,
-      p_amount: diff,
-      p_acted_by: actedBy ?? "discord_staff_bot",
-      p_reason:
-        action === "add"
-          ? "Discord bot から出勤数追加"
-          : "Discord bot から出勤数減算",
-    }
-  );
-
-  if (rpcError || !rpcResult || rpcResult.length === 0) {
-    throw new Error("出勤数の更新に失敗しました。時間をおいてもう一度お試しください。");
-  }
-
   await recordStaffAttendanceEvent({
     supabase,
     userId,
@@ -534,9 +637,27 @@ async function processStaffAction({ req, userId, action, actedBy }) {
     actedBy,
   });
 
+  const monthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
+    supabase,
+    userId
+  );
+
+  await syncStaffCardVisualCountFromAttendance({
+    supabase,
+    card,
+    monthlyAttendanceCount,
+    action,
+    actedBy,
+  });
+
   await syncStaffCard(req, userId);
 
-  return await getStaffCardByUserIdOrThrow(supabase, userId);
+  const updatedCard = await getStaffCardByUserIdOrThrow(supabase, userId);
+
+  return {
+    ...updatedCard,
+    monthly_attendance_count: monthlyAttendanceCount,
+  };
 }
 
 async function createCard({ req, name, actedBy }) {
@@ -646,7 +767,7 @@ async function createStaffCard({ req, staffCode, name, actedBy }) {
 
   await syncStaffCard(req, newUser.user_id);
 
-  return await getStaffCardByCodeOrThrow(supabase, normalizedCode);
+  return await getStaffCardWithMonthlyCountByCodeOrThrow(supabase, normalizedCode);
 }
 
 export async function POST(req) {
@@ -891,7 +1012,10 @@ export async function POST(req) {
         }
 
         const supabase = createSupabaseClient();
-        const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
+        const card = await getStaffCardWithMonthlyCountByCodeOrThrow(
+          supabase,
+          staffCode
+        );
 
         await editOriginalResponse(
           applicationId,
@@ -1098,7 +1222,10 @@ export async function POST(req) {
       }
 
       const supabase = createSupabaseClient();
-      const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
+      const card = await getStaffCardWithMonthlyCountByCodeOrThrow(
+        supabase,
+        staffCode
+      );
 
       await editOriginalResponse(
         applicationId,
