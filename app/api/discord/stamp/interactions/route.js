@@ -350,7 +350,10 @@ async function syncStaffCardVisualCountFromAttendance({
 }) {
   const maxCount = Number(card.max_count ?? DEFAULT_STAFF_MAX_COUNT);
   const beforeCount = Number(card.current_count ?? 0);
-  const nextVisualCount = Math.min(Math.max(Number(monthlyAttendanceCount || 0), 0), maxCount);
+  const nextVisualCount = Math.min(
+    Math.max(Number(monthlyAttendanceCount || 0), 0),
+    maxCount
+  );
   const now = new Date().toISOString();
 
   const actionType = action === "add" ? "add" : "remove";
@@ -629,6 +632,15 @@ async function processStaffAction({ req, userId, action, actedBy }) {
   }
 
   await assertActiveStaffEmployeeByUserId(supabase, userId);
+
+  const currentMonthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
+    supabase,
+    userId
+  );
+
+  if (action === "remove" && currentMonthlyAttendanceCount <= 0) {
+    throw new Error("現在の出勤数が0のため、これ以上減らせません。");
+  }
 
   await recordStaffAttendanceEvent({
     supabase,
