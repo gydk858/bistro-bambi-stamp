@@ -283,6 +283,26 @@ async function sendDeferredResponse(interactionId, interactionToken) {
   }
 }
 
+async function sendDeferredMessageUpdate(interactionId, interactionToken) {
+  const res = await fetch(
+    `https://discord.com/api/v10/interactions/${interactionId}/${interactionToken}/callback`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: 6,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Discord defer update failed: ${text}`);
+  }
+}
+
 async function editOriginalResponse(applicationId, interactionToken, payload) {
   const res = await fetch(
     `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`,
@@ -788,7 +808,31 @@ async function createStaffCard({ req, staffCode, name, actedBy }) {
 
   await syncStaffCard(req, newUser.user_id);
 
-  return await getStaffCardWithMonthlyCountByCodeOrThrow(supabase, normalizedCode);
+  return await getStaffCardWithMonthlyCountByCodeOrThrow(
+    supabase,
+    normalizedCode
+  );
+}
+
+async function processNameUpdate({ req, userId, name }) {
+  const supabase = createSupabaseClient();
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
+  const { error } = await supabase
+    .from("users")
+    .update({
+      display_name: trimmedName === "" ? "未登録" : trimmedName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
+  }
+
+  await syncCard(req, userId);
+
+  return await getStampCardOrThrow(supabase, userId);
 }
 
 export async function POST(req) {
@@ -897,7 +941,7 @@ export async function POST(req) {
     const operatorName = getOperatorName(body);
 
     try {
-      await sendDeferredResponse(interactionId, interactionToken);
+      await sendDeferredMessageUpdate(interactionId, interactionToken);
 
       const [prefix, action, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
@@ -1306,25 +1350,4 @@ export async function POST(req) {
 
     return new Response(null, { status: 202 });
   }
-}
-
-async function processNameUpdate({ req, userId, name }) {
-  const supabase = createSupabaseClient();
-  const trimmedName = typeof name === "string" ? name.trim() : "";
-
-  const { error } = await supabase
-    .from("users")
-    .update({
-      display_name: trimmedName === "" ? "未登録" : trimmedName,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", userId);
-
-  if (error) {
-    throw new Error("氏名の更新に失敗しました。時間をおいてもう一度お試しください。");
-  }
-
-  await syncCard(req, userId);
-
-  return await getStampCardOrThrow(supabase, userId);
 }
