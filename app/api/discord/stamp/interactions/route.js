@@ -41,6 +41,11 @@ function getStaffPreviewImageUrl(card) {
   return `${fixedUrl}?preview=${Date.now()}&count=${count}&attendance=${attendance}`;
 }
 
+function getStaffAttachmentFileName(card) {
+  const userId = card?.user_id ?? "unknown";
+  return `staff-card-${userId}-${Date.now()}.png`;
+}
+
 function getOperatorName(body) {
   const nick = body?.member?.nick;
   const globalName = body?.user?.global_name ?? body?.member?.user?.global_name;
@@ -144,7 +149,7 @@ function buildMainEmbed(card, description = "") {
   };
 }
 
-function buildStaffEmbed(card, description = "") {
+function buildStaffEmbed(card, description = "", imageUrl = null) {
   const attendanceCount =
     card.monthly_attendance_count ??
     card.attendance_count ??
@@ -172,7 +177,7 @@ function buildStaffEmbed(card, description = "") {
           },
         ],
         image: {
-          url: getStaffPreviewImageUrl(card),
+          url: imageUrl ?? getStaffPreviewImageUrl(card),
         },
       },
     ],
@@ -216,9 +221,13 @@ function buildPanelPayload(card, description = "操作パネルです。") {
   };
 }
 
-function buildStaffPanelPayload(card, description = "操作パネルです。") {
+function buildStaffPanelPayload(
+  card,
+  description = "操作パネルです。",
+  imageUrl = null
+) {
   return {
-    ...buildStaffEmbed(card, description),
+    ...buildStaffEmbed(card, description, imageUrl),
     components: [
       {
         type: 1,
@@ -283,26 +292,6 @@ async function sendDeferredResponse(interactionId, interactionToken) {
   }
 }
 
-async function sendDeferredMessageUpdate(interactionId, interactionToken) {
-  const res = await fetch(
-    `https://discord.com/api/v10/interactions/${interactionId}/${interactionToken}/callback`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: 6,
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Discord defer update failed: ${text}`);
-  }
-}
-
 async function editOriginalResponse(applicationId, interactionToken, payload) {
   const res = await fetch(
     `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`,
@@ -318,6 +307,82 @@ async function editOriginalResponse(applicationId, interactionToken, payload) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Discord edit failed: ${text}`);
+  }
+}
+
+async function fetchStaffCardImage(card) {
+  const imageUrl = `${getFixedStaffCardUrl(card.user_id)}?discord=${Date.now()}`;
+
+  const res = await fetch(imageUrl, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `従業員カード画像の取得に失敗しました: ${res.status} ${text}`
+    );
+  }
+
+  const contentType = res.headers.get("content-type") || "image/png";
+  const arrayBuffer = await res.arrayBuffer();
+
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    throw new Error("従業員カード画像の取得に失敗しました。画像が空です。");
+  }
+
+  return {
+    arrayBuffer,
+    contentType,
+  };
+}
+
+async function editOriginalResponseWithStaffImage(
+  applicationId,
+  interactionToken,
+  card,
+  payloadBuilder
+) {
+  const fileName = getStaffAttachmentFileName(card);
+  const imageUrl = `attachment://${fileName}`;
+  const payload = payloadBuilder(imageUrl);
+
+  const image = await fetchStaffCardImage(card);
+
+  const formData = new FormData();
+
+  formData.append(
+    "payload_json",
+    JSON.stringify({
+      ...payload,
+      attachments: [
+        {
+          id: 0,
+          filename: fileName,
+        },
+      ],
+    })
+  );
+
+  formData.append(
+    "files[0]",
+    new Blob([image.arrayBuffer], {
+      type: image.contentType,
+    }),
+    fileName
+  );
+
+  const res = await fetch(
+    `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    {
+      method: "PATCH",
+      body: formData,
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Discord image edit failed: ${text}`);
   }
 }
 
@@ -690,7 +755,7 @@ async function processStaffAction({ req, userId, action, actedBy }) {
 
   await syncStaffCard(req, userId);
 
-  // Supabase Storage反映とDiscord側の画像取得タイミング対策
+  // Supabase Storage反映待ち
   await sleep(800);
 
   const updatedCard = await getStaffCardByUserIdOrThrow(supabase, userId);
@@ -807,6 +872,7 @@ async function createStaffCard({ req, staffCode, name, actedBy }) {
   }
 
   await syncStaffCard(req, newUser.user_id);
+  await sleep(800);
 
   return await getStaffCardWithMonthlyCountByCodeOrThrow(
     supabase,
@@ -941,7 +1007,8 @@ export async function POST(req) {
     const operatorName = getOperatorName(body);
 
     try {
-      await sendDeferredMessageUpdate(interactionId, interactionToken);
+      // ボタン操作後も過去投稿を残すため、type: 5で新しい応答を作る
+      await sendDeferredResponse(interactionId, interactionToken);
 
       const [prefix, action, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
@@ -997,10 +1064,11 @@ export async function POST(req) {
             ? `${operatorName} さんが出勤数を追加しました。`
             : `${operatorName} さんが出勤数を減らしました。`;
 
-        await editOriginalResponse(
+        await editOriginalResponseWithStaffImage(
           applicationId,
           interactionToken,
-          buildStaffPanelPayload(updatedCard, actionMessage)
+          updatedCard,
+          (imageUrl) => buildStaffPanelPayload(updatedCard, actionMessage, imageUrl)
         );
 
         return new Response(null, { status: 202 });
@@ -1082,10 +1150,12 @@ export async function POST(req) {
           staffCode
         );
 
-        await editOriginalResponse(
+        await editOriginalResponseWithStaffImage(
           applicationId,
           interactionToken,
-          buildStaffPanelPayload(card, "従業員カードを表示しました。")
+          card,
+          (imageUrl) =>
+            buildStaffPanelPayload(card, "従業員カードを表示しました。", imageUrl)
         );
 
         return new Response(null, { status: 202 });
@@ -1267,10 +1337,15 @@ export async function POST(req) {
           ? `${operatorName} さんが出勤数を追加しました。`
           : `${operatorName} さんが出勤数を減らしました。`;
 
-      await editOriginalResponse(applicationId, interactionToken, {
-        content: actionMessage,
-        ...buildStaffEmbed(result, actionMessage),
-      });
+      await editOriginalResponseWithStaffImage(
+        applicationId,
+        interactionToken,
+        result,
+        (imageUrl) => ({
+          content: actionMessage,
+          ...buildStaffEmbed(result, actionMessage, imageUrl),
+        })
+      );
 
       return new Response(null, { status: 202 });
     }
@@ -1292,10 +1367,12 @@ export async function POST(req) {
         staffCode
       );
 
-      await editOriginalResponse(
+      await editOriginalResponseWithStaffImage(
         applicationId,
         interactionToken,
-        buildStaffPanelPayload(card, "操作パネルを表示しました。")
+        card,
+        (imageUrl) =>
+          buildStaffPanelPayload(card, "操作パネルを表示しました。", imageUrl)
       );
 
       return new Response(null, { status: 202 });
@@ -1320,13 +1397,16 @@ export async function POST(req) {
         actedBy: operatorName,
       });
 
-      await editOriginalResponse(
+      await editOriginalResponseWithStaffImage(
         applicationId,
         interactionToken,
-        buildStaffPanelPayload(
-          newCard,
-          `${operatorName} さんが新しい従業員カードを発行しました。`
-        )
+        newCard,
+        (imageUrl) =>
+          buildStaffPanelPayload(
+            newCard,
+            `${operatorName} さんが新しい従業員カードを発行しました。`,
+            imageUrl
+          )
       );
 
       return new Response(null, { status: 202 });
