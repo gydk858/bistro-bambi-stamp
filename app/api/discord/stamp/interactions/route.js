@@ -36,7 +36,9 @@ function getPreviewImageUrl(card) {
 
 function getStaffPreviewImageUrl(card) {
   const fixedUrl = getFixedStaffCardUrl(card.user_id);
-  return `${fixedUrl}?preview=${Date.now()}`;
+  const count = card.current_count ?? 0;
+  const attendance = card.monthly_attendance_count ?? count;
+  return `${fixedUrl}?preview=${Date.now()}&count=${count}&attendance=${attendance}`;
 }
 
 function getOperatorName(body) {
@@ -102,6 +104,10 @@ function getMonthRangeFromWorkDateString(workDateString) {
 
 function getCurrentWorkMonthRange() {
   return getMonthRangeFromWorkDateString(getJstWorkDateString());
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildMainEmbed(card, description = "") {
@@ -663,6 +669,9 @@ async function processStaffAction({ req, userId, action, actedBy }) {
   });
 
   await syncStaffCard(req, userId);
+
+  // Supabase Storage反映とDiscord側の画像取得タイミング対策
+  await sleep(800);
 
   const updatedCard = await getStaffCardByUserIdOrThrow(supabase, userId);
 
