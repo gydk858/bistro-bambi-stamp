@@ -115,6 +115,27 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatMinutes(minutes) {
+  const value = Number(minutes || 0);
+
+  if (value <= 0) {
+    return "0分";
+  }
+
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+
+  if (hours <= 0) {
+    return `${mins}分`;
+  }
+
+  if (mins <= 0) {
+    return `${hours}時間`;
+  }
+
+  return `${hours}時間${mins}分`;
+}
+
 function buildMainEmbed(card, description = "") {
   return {
     embeds: [
@@ -158,24 +179,50 @@ function buildStaffEmbed(card, description = "", imageUrl = null) {
 
   const maxCount = card.max_count ?? DEFAULT_STAFF_MAX_COUNT;
 
+  const fields = [
+    {
+      name: "従業員コード",
+      value: String(card.staff_code ?? "未設定"),
+      inline: true,
+    },
+    {
+      name: "現在の出勤数",
+      value: `${String(attendanceCount)} / ${String(maxCount)}`,
+      inline: true,
+    },
+  ];
+
+  if (card.today_status) {
+    fields.push({
+      name: "本日の状態",
+      value: String(card.today_status),
+      inline: true,
+    });
+  }
+
+  if (Number(card.today_worked_minutes || 0) > 0) {
+    fields.push({
+      name: "本日の勤務時間",
+      value: formatMinutes(card.today_worked_minutes),
+      inline: true,
+    });
+  }
+
+  if (Number(card.today_bonus_eligible_minutes || 0) > 0) {
+    fields.push({
+      name: "本日のボーナス対象",
+      value: formatMinutes(card.today_bonus_eligible_minutes),
+      inline: true,
+    });
+  }
+
   return {
     embeds: [
       {
         title: "-Bistro-Bambi 従業員カード",
         color: 0xa5bb73,
         description,
-        fields: [
-          {
-            name: "従業員コード",
-            value: String(card.staff_code ?? "未設定"),
-            inline: true,
-          },
-          {
-            name: "現在の出勤数",
-            value: `${String(attendanceCount)} / ${String(maxCount)}`,
-            inline: true,
-          },
-        ],
+        fields,
         image: {
           url: imageUrl ?? getStaffPreviewImageUrl(card),
         },
@@ -235,14 +282,20 @@ function buildStaffPanelPayload(
           {
             type: 2,
             style: 3,
-            label: "+1",
-            custom_id: `staff:add:${card.user_id}`,
+            label: "出勤",
+            custom_id: `staff:clockin:${card.user_id}`,
           },
           {
             type: 2,
             style: 4,
-            label: "-1",
-            custom_id: `staff:remove:${card.user_id}`,
+            label: "退勤",
+            custom_id: `staff:clockout:${card.user_id}`,
+          },
+          {
+            type: 2,
+            style: 1,
+            label: "修正",
+            custom_id: `staff:fix:${card.user_id}`,
           },
           {
             type: 2,
@@ -418,7 +471,48 @@ async function getStaffMonthlyAttendanceCount(supabase, userId) {
   return Math.max(0, total);
 }
 
-async function attachStaffMonthlyAttendanceCount(supabase, card) {
+async function getTodayWorkSession(supabase, userId) {
+  const workDate = getJstWorkDateString();
+
+  const { data, error } = await supabase
+    .from("staff_work_sessions")
+    .select("*")
+    .eq("user_id", Number(userId))
+    .eq("work_date", workDate)
+    .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  return data || null;
+}
+
+function getTodayStatusLabel(session) {
+  if (!session) {
+    return "未出勤";
+  }
+
+  if (session.status === "open") {
+    return "出勤中";
+  }
+
+  if (session.status === "closed") {
+    return "退勤済み";
+  }
+
+  if (session.status === "fixed") {
+    return "修正済み";
+  }
+
+  if (session.status === "needs_fix") {
+    return "要修正";
+  }
+
+  return String(session.status || "不明");
+}
+
+async function attachStaffExtraStatus(supabase, card) {
   if (!card) return card;
 
   const monthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
@@ -426,18 +520,23 @@ async function attachStaffMonthlyAttendanceCount(supabase, card) {
     card.user_id
   );
 
+  const todaySession = await getTodayWorkSession(supabase, card.user_id);
+
   return {
     ...card,
     monthly_attendance_count: monthlyAttendanceCount,
+    today_status: getTodayStatusLabel(todaySession),
+    today_worked_minutes: todaySession?.worked_minutes ?? 0,
+    today_bonus_eligible_minutes: todaySession?.bonus_eligible_minutes ?? 0,
   };
 }
 
-async function syncStaffCardVisualCountFromAttendance({
+async function syncStaffCardVisualCountToMonthly({
   supabase,
   card,
   monthlyAttendanceCount,
-  action,
   actedBy,
+  reason,
 }) {
   const maxCount = Number(card.max_count ?? DEFAULT_STAFF_MAX_COUNT);
   const beforeCount = Number(card.current_count ?? 0);
@@ -445,24 +544,24 @@ async function syncStaffCardVisualCountFromAttendance({
     Math.max(Number(monthlyAttendanceCount || 0), 0),
     maxCount
   );
-  const now = new Date().toISOString();
 
-  const actionType = action === "add" ? "add" : "remove";
-  const amount = action === "add" ? 1 : -1;
+  if (beforeCount === nextVisualCount) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const diff = nextVisualCount - beforeCount;
 
   const { error: historyError } = await supabase
     .from("stamp_histories")
     .insert({
       card_id: Number(card.card_id),
-      action_type: actionType,
-      amount,
+      action_type: diff >= 0 ? "add" : "remove",
+      amount: diff,
       before_count: beforeCount,
       after_count: nextVisualCount,
       acted_by: actedBy ?? "discord_staff_bot",
-      reason:
-        action === "add"
-          ? "Discord bot から出勤数追加"
-          : "Discord bot から出勤数減算",
+      reason: reason ?? "Discord bot から従業員カード表示数を同期",
       acted_at: now,
     });
 
@@ -508,7 +607,7 @@ async function getStampCardOrThrow(supabase, userId) {
   const { data: card, error } = await supabase
     .from("v_stamp_cards_current")
     .select("*")
-    .eq("user_id", userId)
+    .eq("user_id", Number(userId))
     .eq("program_code", STAMP_PROGRAM_CODE)
     .eq("card_status", "active")
     .maybeSingle();
@@ -550,9 +649,9 @@ async function getStaffCardByUserIdOrThrow(supabase, userId) {
   return card;
 }
 
-async function getStaffCardWithMonthlyCountByUserIdOrThrow(supabase, userId) {
+async function getStaffCardWithStatusByUserIdOrThrow(supabase, userId) {
   const card = await getStaffCardByUserIdOrThrow(supabase, userId);
-  return await attachStaffMonthlyAttendanceCount(supabase, card);
+  return await attachStaffExtraStatus(supabase, card);
 }
 
 async function getStaffCardByCodeOrThrow(supabase, staffCode) {
@@ -577,9 +676,9 @@ async function getStaffCardByCodeOrThrow(supabase, staffCode) {
   return card;
 }
 
-async function getStaffCardWithMonthlyCountByCodeOrThrow(supabase, staffCode) {
+async function getStaffCardWithStatusByCodeOrThrow(supabase, staffCode) {
   const card = await getStaffCardByCodeOrThrow(supabase, staffCode);
-  return await attachStaffMonthlyAttendanceCount(supabase, card);
+  return await attachStaffExtraStatus(supabase, card);
 }
 
 async function assertActiveStaffEmployeeByUserId(supabase, userId) {
@@ -598,7 +697,7 @@ async function assertActiveStaffEmployeeByUserId(supabase, userId) {
   }
 
   if (profile.employment_status !== "active") {
-    throw new Error("あなたはDiscordから出勤数を操作できません。店長に確認してください。");
+    throw new Error("あなたはDiscordから出勤・退勤操作できません。店長に確認してください。");
   }
 
   return profile;
@@ -646,38 +745,6 @@ async function updateDisplayNameIfNeeded(supabase, userId, name) {
   }
 }
 
-async function recordStaffAttendanceEvent({
-  supabase,
-  userId,
-  action,
-  actedBy,
-}) {
-  if (!["add", "remove"].includes(action)) {
-    throw new Error("出勤履歴の操作内容が正しくありません。");
-  }
-
-  const amount = action === "add" ? 1 : -1;
-  const eventType = action === "add" ? "work" : "adjust_minus";
-  const workDate = getJstWorkDateString();
-
-  const { error } = await supabase.rpc("record_staff_attendance_event", {
-    p_user_id: Number(userId),
-    p_work_date: workDate,
-    p_amount: amount,
-    p_event_type: eventType,
-    p_source: "discord",
-    p_note:
-      action === "add"
-        ? "Discord から出勤数追加"
-        : "Discord から出勤数減算",
-    p_acted_by: actedBy ?? "discord_staff_bot",
-  });
-
-  if (error) {
-    throw new Error(`出勤履歴の保存に失敗しました: ${error.message}`);
-  }
-}
-
 async function processStampAction({ req, userId, action, name, actedBy }) {
   const supabase = createSupabaseClient();
   const card = await getStampCardOrThrow(supabase, userId);
@@ -714,56 +781,110 @@ async function processStampAction({ req, userId, action, name, actedBy }) {
   return await getStampCardOrThrow(supabase, userId);
 }
 
-async function processStaffAction({ req, userId, action, actedBy }) {
+async function processStaffClockIn({ req, userId, actedBy }) {
   const supabase = createSupabaseClient();
-  const card = await getStaffCardByUserIdOrThrow(supabase, userId);
-
-  if (!["add", "remove"].includes(action)) {
-    throw new Error("操作内容が正しくありません。もう一度お試しください。");
-  }
 
   await assertActiveStaffEmployeeByUserId(supabase, userId);
 
-  const currentMonthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
-    supabase,
-    userId
-  );
+  const baseCard = await getStaffCardByUserIdOrThrow(supabase, userId);
 
-  if (action === "remove" && currentMonthlyAttendanceCount <= 0) {
-    throw new Error("現在の出勤数が0のため、これ以上減らせません。");
-  }
-
-  await recordStaffAttendanceEvent({
-    supabase,
-    userId,
-    action,
-    actedBy,
+  const { error } = await supabase.rpc("staff_clock_in", {
+    p_user_id: Number(userId),
+    p_acted_by: actedBy ?? "discord_staff_bot",
+    p_source: "discord",
+    p_note: "Discordから出勤",
   });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 
   const monthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
     supabase,
     userId
   );
 
-  await syncStaffCardVisualCountFromAttendance({
+  await syncStaffCardVisualCountToMonthly({
     supabase,
-    card,
+    card: baseCard,
     monthlyAttendanceCount,
-    action,
     actedBy,
+    reason: "Discordから出勤",
   });
 
   await syncStaffCard(req, userId);
-
-  // Supabase Storage反映待ち
   await sleep(800);
 
-  const updatedCard = await getStaffCardByUserIdOrThrow(supabase, userId);
+  return await getStaffCardWithStatusByUserIdOrThrow(supabase, userId);
+}
 
-  return {
-    ...updatedCard,
-    monthly_attendance_count: monthlyAttendanceCount,
-  };
+async function processStaffClockOut({ req, userId, actedBy }) {
+  const supabase = createSupabaseClient();
+
+  await assertActiveStaffEmployeeByUserId(supabase, userId);
+
+  const { error } = await supabase.rpc("staff_clock_out", {
+    p_user_id: Number(userId),
+    p_acted_by: actedBy ?? "discord_staff_bot",
+    p_source: "discord",
+    p_note: "Discordから退勤",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await sleep(300);
+
+  return await getStaffCardWithStatusByUserIdOrThrow(supabase, userId);
+}
+
+async function processStaffFix({
+  req,
+  userId,
+  workDate,
+  clockInTime,
+  clockOutTime,
+  reason,
+  actedBy,
+}) {
+  const supabase = createSupabaseClient();
+
+  await assertActiveStaffEmployeeByUserId(supabase, userId);
+
+  const beforeCard = await getStaffCardByUserIdOrThrow(supabase, userId);
+
+  const { error } = await supabase.rpc("staff_fix_work_session", {
+    p_user_id: Number(userId),
+    p_work_date: workDate,
+    p_clock_in_time: clockInTime || null,
+    p_clock_out_time: clockOutTime || null,
+    p_reason: reason || "Discordから勤務時間修正",
+    p_acted_by: actedBy ?? "discord_staff_bot",
+    p_source: "discord",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const monthlyAttendanceCount = await getStaffMonthlyAttendanceCount(
+    supabase,
+    userId
+  );
+
+  await syncStaffCardVisualCountToMonthly({
+    supabase,
+    card: beforeCard,
+    monthlyAttendanceCount,
+    actedBy,
+    reason: "Discordから勤務時間修正",
+  });
+
+  await syncStaffCard(req, userId);
+  await sleep(800);
+
+  return await getStaffCardWithStatusByUserIdOrThrow(supabase, userId);
 }
 
 async function createCard({ req, name, actedBy }) {
@@ -874,10 +995,7 @@ async function createStaffCard({ req, staffCode, name, actedBy }) {
   await syncStaffCard(req, newUser.user_id);
   await sleep(800);
 
-  return await getStaffCardWithMonthlyCountByCodeOrThrow(
-    supabase,
-    normalizedCode
-  );
+  return await getStaffCardWithStatusByCodeOrThrow(supabase, normalizedCode);
 }
 
 async function processNameUpdate({ req, userId, name }) {
@@ -899,6 +1017,113 @@ async function processNameUpdate({ req, userId, name }) {
   await syncCard(req, userId);
 
   return await getStampCardOrThrow(supabase, userId);
+}
+
+function createStaffFixModal(userId) {
+  return {
+    type: 9,
+    data: {
+      custom_id: `staff_fix_modal:${userId}`,
+      title: "勤務時間修正",
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 4,
+              custom_id: "work_date_input",
+              label: "対象日",
+              style: 1,
+              min_length: 10,
+              max_length: 10,
+              required: true,
+              placeholder: "例: 2026-09-27",
+            },
+          ],
+        },
+        {
+          type: 1,
+          components: [
+            {
+              type: 4,
+              custom_id: "clock_in_time_input",
+              label: "出勤時刻",
+              style: 1,
+              min_length: 0,
+              max_length: 5,
+              required: false,
+              placeholder: "例: 21:00",
+            },
+          ],
+        },
+        {
+          type: 1,
+          components: [
+            {
+              type: 4,
+              custom_id: "clock_out_time_input",
+              label: "退勤時刻",
+              style: 1,
+              min_length: 0,
+              max_length: 5,
+              required: false,
+              placeholder: "例: 23:30 / 24:30",
+            },
+          ],
+        },
+        {
+          type: 1,
+          components: [
+            {
+              type: 4,
+              custom_id: "reason_input",
+              label: "理由",
+              style: 1,
+              min_length: 0,
+              max_length: 50,
+              required: false,
+              placeholder: "例: 押し忘れ",
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function getModalInputValue(body, customId) {
+  const rows = body.data?.components ?? [];
+
+  for (const row of rows) {
+    const input = row?.components?.[0];
+    if (input?.custom_id === customId) {
+      return input?.value ?? "";
+    }
+  }
+
+  return "";
+}
+
+function normalizeWorkDate(value) {
+  const text = String(value ?? "").trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new Error("対象日は YYYY-MM-DD 形式で入力してください。例: 2026-09-27");
+  }
+
+  return text;
+}
+
+function normalizeTimeOrNull(value, label) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return null;
+
+  if (!/^\d{1,2}:[0-5]\d$/.test(text)) {
+    throw new Error(`${label}は HH:MM 形式で入力してください。例: 21:00`);
+  }
+
+  return text;
 }
 
 export async function POST(req) {
@@ -1001,13 +1226,17 @@ export async function POST(req) {
       });
     }
 
+    if (customId.startsWith("staff:fix:")) {
+      const userId = customId.split(":")[2];
+      return Response.json(createStaffFixModal(userId));
+    }
+
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
     const operatorName = getOperatorName(body);
 
     try {
-      // ボタン操作後も過去投稿を残すため、type: 5で新しい応答を作る
       await sendDeferredResponse(interactionId, interactionToken);
 
       const [prefix, action, userIdRaw] = customId.split(":");
@@ -1052,17 +1281,26 @@ export async function POST(req) {
           return new Response(null, { status: 202 });
         }
 
-        const updatedCard = await processStaffAction({
-          req,
-          userId,
-          action,
-          actedBy: operatorName,
-        });
+        let updatedCard;
+        let actionMessage;
 
-        const actionMessage =
-          action === "add"
-            ? `${operatorName} さんが出勤数を追加しました。`
-            : `${operatorName} さんが出勤数を減らしました。`;
+        if (action === "clockin" || action === "add") {
+          updatedCard = await processStaffClockIn({
+            req,
+            userId,
+            actedBy: operatorName,
+          });
+          actionMessage = `${operatorName} さんが出勤しました。`;
+        } else if (action === "clockout" || action === "remove") {
+          updatedCard = await processStaffClockOut({
+            req,
+            userId,
+            actedBy: operatorName,
+          });
+          actionMessage = `${operatorName} さんが退勤しました。`;
+        } else {
+          throw new Error("操作内容を読み取れませんでした。もう一度お試しください。");
+        }
 
         await editOriginalResponseWithStaffImage(
           applicationId,
@@ -1100,6 +1338,7 @@ export async function POST(req) {
     const interactionId = body.id;
     const interactionToken = body.token;
     const applicationId = body.application_id;
+    const operatorName = getOperatorName(body);
 
     try {
       await sendDeferredResponse(interactionId, interactionToken);
@@ -1107,9 +1346,7 @@ export async function POST(req) {
       const customId = body.data?.custom_id ?? "";
 
       if (customId === "search_id_modal") {
-        const rows = body.data?.components ?? [];
-        const firstInput = rows?.[0]?.components?.[0];
-        const rawSearchId = firstInput?.value ?? "";
+        const rawSearchId = getModalInputValue(body, "search_id_input");
         const userId = Number(String(rawSearchId).trim());
 
         if (!Number.isFinite(userId)) {
@@ -1132,9 +1369,7 @@ export async function POST(req) {
       }
 
       if (customId === "staff_search_modal") {
-        const rows = body.data?.components ?? [];
-        const firstInput = rows?.[0]?.components?.[0];
-        const rawStaffCode = firstInput?.value ?? "";
+        const rawStaffCode = getModalInputValue(body, "staff_code_input");
         const staffCode = String(rawStaffCode).trim();
 
         if (!staffCode) {
@@ -1145,7 +1380,7 @@ export async function POST(req) {
         }
 
         const supabase = createSupabaseClient();
-        const card = await getStaffCardWithMonthlyCountByCodeOrThrow(
+        const card = await getStaffCardWithStatusByCodeOrThrow(
           supabase,
           staffCode
         );
@@ -1161,6 +1396,63 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
+      if (customId.startsWith("staff_fix_modal:")) {
+        const userId = Number(customId.split(":")[1]);
+
+        if (!Number.isFinite(userId)) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "従業員情報を読み取れませんでした。もう一度お試しください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const workDate = normalizeWorkDate(
+          getModalInputValue(body, "work_date_input")
+        );
+        const clockInTime = normalizeTimeOrNull(
+          getModalInputValue(body, "clock_in_time_input"),
+          "出勤時刻"
+        );
+        const clockOutTime = normalizeTimeOrNull(
+          getModalInputValue(body, "clock_out_time_input"),
+          "退勤時刻"
+        );
+        const reason =
+          String(getModalInputValue(body, "reason_input") ?? "").trim() ||
+          "Discordから勤務時間修正";
+
+        if (!clockInTime && !clockOutTime) {
+          await editOriginalResponse(applicationId, interactionToken, {
+            content: "出勤時刻または退勤時刻を入力してください。",
+          });
+          return new Response(null, { status: 202 });
+        }
+
+        const updatedCard = await processStaffFix({
+          req,
+          userId,
+          workDate,
+          clockInTime,
+          clockOutTime,
+          reason,
+          actedBy: operatorName,
+        });
+
+        await editOriginalResponseWithStaffImage(
+          applicationId,
+          interactionToken,
+          updatedCard,
+          (imageUrl) =>
+            buildStaffPanelPayload(
+              updatedCard,
+              `${operatorName} さんが勤務時間を修正しました。`,
+              imageUrl
+            )
+        );
+
+        return new Response(null, { status: 202 });
+      }
+
       const [prefix, userIdRaw] = customId.split(":");
       const userId = Number(userIdRaw);
 
@@ -1171,9 +1463,7 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
-      const rows = body.data?.components ?? [];
-      const firstInput = rows?.[0]?.components?.[0];
-      const newName = firstInput?.value ?? "";
+      const newName = getModalInputValue(body, "name_input");
 
       const result = await processNameUpdate({
         req,
@@ -1315,27 +1605,32 @@ export async function POST(req) {
         return new Response(null, { status: 202 });
       }
 
-      if (!["add", "remove"].includes(action)) {
+      const supabase = createSupabaseClient();
+      const targetCard = await getStaffCardByCodeOrThrow(supabase, staffCode);
+
+      let result;
+      let actionMessage;
+
+      if (action === "clockin" || action === "add") {
+        result = await processStaffClockIn({
+          req,
+          userId: targetCard.user_id,
+          actedBy: operatorName,
+        });
+        actionMessage = `${operatorName} さんが出勤しました。`;
+      } else if (action === "clockout" || action === "remove") {
+        result = await processStaffClockOut({
+          req,
+          userId: targetCard.user_id,
+          actedBy: operatorName,
+        });
+        actionMessage = `${operatorName} さんが退勤しました。`;
+      } else {
         await editOriginalResponse(applicationId, interactionToken, {
           content: "操作内容を確認してください。",
         });
         return new Response(null, { status: 202 });
       }
-
-      const supabase = createSupabaseClient();
-      const targetCard = await getStaffCardByCodeOrThrow(supabase, staffCode);
-
-      const result = await processStaffAction({
-        req,
-        userId: targetCard.user_id,
-        action,
-        actedBy: operatorName,
-      });
-
-      const actionMessage =
-        action === "add"
-          ? `${operatorName} さんが出勤数を追加しました。`
-          : `${operatorName} さんが出勤数を減らしました。`;
 
       await editOriginalResponseWithStaffImage(
         applicationId,
@@ -1362,7 +1657,7 @@ export async function POST(req) {
       }
 
       const supabase = createSupabaseClient();
-      const card = await getStaffCardWithMonthlyCountByCodeOrThrow(
+      const card = await getStaffCardWithStatusByCodeOrThrow(
         supabase,
         staffCode
       );
