@@ -210,7 +210,7 @@ function buildStaffEmbed(card, description = "", imageUrl = null) {
 
   if (Number(card.today_bonus_eligible_minutes || 0) > 0) {
     fields.push({
-      name: "本日のボーナス対象",
+      name: "本日の加算対象時間",
       value: formatMinutes(card.today_bonus_eligible_minutes),
       inline: true,
     });
@@ -607,7 +607,7 @@ async function getStampCardOrThrow(supabase, userId) {
   const { data: card, error } = await supabase
     .from("v_stamp_cards_current")
     .select("*")
-    .eq("user_id", Number(userId))
+    .eq("user_id", userId)
     .eq("program_code", STAMP_PROGRAM_CODE)
     .eq("card_status", "active")
     .maybeSingle();
@@ -1020,6 +1020,8 @@ async function processNameUpdate({ req, userId, name }) {
 }
 
 function createStaffFixModal(userId) {
+  const defaultWorkDate = getJstWorkDateString();
+
   return {
     type: 9,
     data: {
@@ -1037,6 +1039,7 @@ function createStaffFixModal(userId) {
               min_length: 10,
               max_length: 10,
               required: true,
+              value: defaultWorkDate,
               placeholder: "例: 2026-09-27",
             },
           ],
@@ -1052,7 +1055,7 @@ function createStaffFixModal(userId) {
               min_length: 0,
               max_length: 5,
               required: false,
-              placeholder: "例: 21:00",
+              placeholder: "例: 21:00 ※日付またぎは25:00/26:00",
             },
           ],
         },
@@ -1067,7 +1070,7 @@ function createStaffFixModal(userId) {
               min_length: 0,
               max_length: 5,
               required: false,
-              placeholder: "例: 23:30 / 24:30",
+              placeholder: "例: 23:30 / 25:30 ※日付またぎは25:00/26:00",
             },
           ],
         },
