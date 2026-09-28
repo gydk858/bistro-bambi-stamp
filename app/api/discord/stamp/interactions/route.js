@@ -216,6 +216,14 @@ function buildStaffEmbed(card, description = "", imageUrl = null) {
     });
   }
 
+  if (Number(card.monthly_bonus_eligible_minutes || 0) > 0) {
+    fields.push({
+      name: "今月の加算対象時間",
+      value: formatMinutes(card.monthly_bonus_eligible_minutes),
+      inline: true,
+    });
+  }
+
   return {
     embeds: [
       {
@@ -471,6 +479,25 @@ async function getStaffMonthlyAttendanceCount(supabase, userId) {
   return Math.max(0, total);
 }
 
+async function getStaffMonthlyBonusEligibleMinutes(supabase, userId) {
+  const range = getCurrentWorkMonthRange();
+
+  const { data, error } = await supabase
+    .from("staff_work_sessions")
+    .select("bonus_eligible_minutes")
+    .eq("user_id", Number(userId))
+    .gte("work_date", range.firstDay)
+    .lte("work_date", range.lastDay);
+
+  if (error) {
+    throw new Error(`月内加算対象時間の取得に失敗しました: ${error.message}`);
+  }
+
+  return (data || []).reduce((sum, row) => {
+    return sum + Number(row.bonus_eligible_minutes || 0);
+  }, 0);
+}
+
 async function getTodayWorkSession(supabase, userId) {
   const workDate = getJstWorkDateString();
 
@@ -520,11 +547,15 @@ async function attachStaffExtraStatus(supabase, card) {
     card.user_id
   );
 
+  const monthlyBonusEligibleMinutes =
+    await getStaffMonthlyBonusEligibleMinutes(supabase, card.user_id);
+
   const todaySession = await getTodayWorkSession(supabase, card.user_id);
 
   return {
     ...card,
     monthly_attendance_count: monthlyAttendanceCount,
+    monthly_bonus_eligible_minutes: monthlyBonusEligibleMinutes,
     today_status: getTodayStatusLabel(todaySession),
     today_worked_minutes: todaySession?.worked_minutes ?? 0,
     today_bonus_eligible_minutes: todaySession?.bonus_eligible_minutes ?? 0,
