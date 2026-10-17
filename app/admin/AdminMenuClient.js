@@ -23,6 +23,7 @@ export default function AdminMenuClient() {
       href: '/admin/staff',
       buttonLabel: '従業員管理を開く',
     },
+    { title: 'イベント管理', icon: '🎪', description: '単発企画の作成、イベント別スタンプカードの発行・更新を行います。', href: '/admin/events', buttonLabel: 'イベント一覧を開く' },
   ]
 
   return (

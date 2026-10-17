@@ -7,6 +7,17 @@ import { supabase } from '@/lib/supabase'
 const DEFAULT_PREVIOUS_VAULT_AFTER_AMOUNT = '2019102555'
 const DEFAULT_RANCH_UNIT_CARE_PAY = 3000000
 
+const normalizeHalfType = (value) => String(value || '').trim().toLowerCase()
+const isMonthlyBonusHalfType = (value) => normalizeHalfType(value) === 'monthly_bonus'
+
+const getPayrollPeriodSortOrder = (value) => {
+  const halfType = normalizeHalfType(value)
+  if (halfType === 'first_half') return 1
+  if (halfType === 'second_half') return 2
+  if (halfType === 'monthly_bonus') return 3
+  return 99
+}
+
 export default function PayrollClient() {
   const now = new Date()
 
@@ -33,16 +44,22 @@ export default function PayrollClient() {
   const [extraIncomeAmount, setExtraIncomeAmount] = useState('0')
   const [periodMemo, setPeriodMemo] = useState('')
   const [periodSummary, setPeriodSummary] = useState(null)
+  const [monthlyBonusPoolAmount, setMonthlyBonusPoolAmount] = useState('0')
+  const [monthlyBonusRun, setMonthlyBonusRun] = useState(null)
+  const [monthlyBonusRunItems, setMonthlyBonusRunItems] = useState([])
 
   const [ranchPayrollLink, setRanchPayrollLink] = useState(null)
   const [ranchCareEvents, setRanchCareEvents] = useState([])
   const [ranchUnitCarePay, setRanchUnitCarePay] = useState(DEFAULT_RANCH_UNIT_CARE_PAY)
+  const [staffWorkSessions, setStaffWorkSessions] = useState([])
+  const [employeeProfiles, setEmployeeProfiles] = useState([])
 
   const selectedPeriod = useMemo(() => {
     return periods.find((p) => String(p.payroll_period_id) === String(selectedPeriodId))
   }, [periods, selectedPeriodId])
 
   const isSelectedPeriodLocked = selectedPeriod?.status === 'locked'
+  const isSelectedPeriodMonthlyBonus = isMonthlyBonusHalfType(selectedPeriod?.half_type)
 
   const selectedRateRuleSet = useMemo(() => {
     return rateRuleSets.find(
@@ -61,8 +78,166 @@ export default function PayrollClient() {
     return map
   }, [ranchCareEvents])
 
+  const staffWorkSessionMap = useMemo(() => {
+    const map = {}
+
+    staffWorkSessions.forEach((session) => {
+      const key = String(session.user_id)
+
+      if (!map[key]) {
+        map[key] = {
+          userId: session.user_id,
+          staffCode: session.staff_code || '-',
+          bonusEligibleMinutes: 0,
+        }
+      }
+
+      if (session.staff_code && map[key].staffCode === '-') {
+        map[key].staffCode = session.staff_code
+      }
+
+      map[key].bonusEligibleMinutes += Number(session.bonus_eligible_minutes || 0)
+    })
+
+    return map
+  }, [staffWorkSessions])
+
+  const employeeProfileMap = useMemo(() => {
+    const map = {}
+
+    employeeProfiles.forEach((profile) => {
+      const key = String(profile.user_id)
+      map[key] = {
+        userId: profile.user_id,
+        staffCode: profile.staff_code || '-',
+        employeeName: profile.employee_name || profile.staff_code || '-',
+      }
+    })
+
+    return map
+  }, [employeeProfiles])
+
+  const totalMonthlyBonusEligibleMinutesAll = useMemo(() => {
+    return Object.values(staffWorkSessionMap).reduce((sum, row) => {
+      return sum + Number(row.bonusEligibleMinutes || 0)
+    }, 0)
+  }, [staffWorkSessionMap])
+
+  const monthlyBonusEligibleUserCount = useMemo(() => {
+    return Object.values(staffWorkSessionMap).filter((row) => Number(row.bonusEligibleMinutes || 0) > 0).length
+  }, [staffWorkSessionMap])
+
+
+  const monthlyBonusPoolNumber = useMemo(() => {
+    const normalized = String(monthlyBonusPoolAmount ?? '')
+      .replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+      .replace(/,/g, '')
+      .replace(/[^\d-]/g, '')
+
+    if (normalized === '' || normalized === '-') return 0
+    return Number(normalized)
+  }, [monthlyBonusPoolAmount])
+
+  const monthlyBonusDistributionRows = useMemo(() => {
+    if (monthlyBonusPoolNumber <= 0 || totalMonthlyBonusEligibleMinutesAll <= 0) return []
+
+    const baseRows = Object.values(staffWorkSessionMap)
+      .filter((row) => Number(row.bonusEligibleMinutes || 0) > 0)
+      .map((row) => {
+        const bonusEligibleMinutes = Number(row.bonusEligibleMinutes || 0)
+        const rate = bonusEligibleMinutes / totalMonthlyBonusEligibleMinutesAll
+        const exactBonusAmount = monthlyBonusPoolNumber * rate
+        const baseBonusAmount = Math.floor(exactBonusAmount)
+        const profile = employeeProfileMap[String(row.userId)] || {}
+
+        return {
+          userId: row.userId,
+          staffCode: profile.staffCode || row.staffCode || '-',
+          employeeName: profile.employeeName || row.staffCode || '-',
+          bonusEligibleMinutes,
+          rate,
+          baseBonusAmount,
+          remainder: exactBonusAmount - baseBonusAmount,
+        }
+      })
+
+    const baseTotal = baseRows.reduce((sum, row) => sum + row.baseBonusAmount, 0)
+    const remainingAmount = Math.max(0, monthlyBonusPoolNumber - baseTotal)
+    const bonusAddMap = {}
+
+    ;[...baseRows]
+      .sort((a, b) => {
+        if (b.remainder !== a.remainder) return b.remainder - a.remainder
+        if (b.bonusEligibleMinutes !== a.bonusEligibleMinutes) return b.bonusEligibleMinutes - a.bonusEligibleMinutes
+        return String(a.staffCode).localeCompare(String(b.staffCode), 'ja')
+      })
+      .forEach((row, index) => {
+        bonusAddMap[String(row.userId)] = index < remainingAmount ? 1 : 0
+      })
+
+    return baseRows
+      .map((row) => ({
+        ...row,
+        bonusAmount: row.baseBonusAmount + (bonusAddMap[String(row.userId)] || 0),
+      }))
+      .sort((a, b) => String(a.staffCode).localeCompare(String(b.staffCode), 'ja'))
+  }, [employeeProfileMap, monthlyBonusPoolNumber, staffWorkSessionMap, totalMonthlyBonusEligibleMinutesAll])
+
+  const totalMonthlyBonusPreviewAmount = useMemo(() => {
+    return monthlyBonusDistributionRows.reduce((sum, row) => sum + Number(row.bonusAmount || 0), 0)
+  }, [monthlyBonusDistributionRows])
+
+  const selectedMonthlyBonusRun = useMemo(() => {
+    if (!isSelectedPeriodMonthlyBonus || !selectedPeriodId || !monthlyBonusRun) return null
+
+    if (String(monthlyBonusRun.payroll_period_id) !== String(selectedPeriodId)) return null
+
+    return monthlyBonusRun
+  }, [isSelectedPeriodMonthlyBonus, monthlyBonusRun, selectedPeriodId])
+
+  const hasSavedMonthlyBonusRun = Boolean(selectedMonthlyBonusRun)
+
+  const monthlyBonusVaultBeforeDisplay = useMemo(() => {
+    if (!selectedMonthlyBonusRun) return null
+
+    if (selectedMonthlyBonusRun.previous_vault_after_amount !== null && selectedMonthlyBonusRun.previous_vault_after_amount !== undefined) {
+      return selectedMonthlyBonusRun.previous_vault_after_amount
+    }
+
+    if (previousVaultAfterAmount !== null && previousVaultAfterAmount !== undefined && previousVaultAfterAmount !== '') {
+      return previousVaultAfterAmount
+    }
+
+    return null
+  }, [previousVaultAfterAmount, selectedMonthlyBonusRun])
+
+  const monthlyBonusVaultAfterDisplay = useMemo(() => {
+    if (!selectedMonthlyBonusRun) return null
+
+    if (selectedMonthlyBonusRun.vault_after_amount !== null && selectedMonthlyBonusRun.vault_after_amount !== undefined) {
+      return selectedMonthlyBonusRun.vault_after_amount
+    }
+
+    if (monthlyBonusVaultBeforeDisplay !== null && monthlyBonusVaultBeforeDisplay !== undefined && monthlyBonusVaultBeforeDisplay !== '') {
+      return toAmountNumber(monthlyBonusVaultBeforeDisplay) - toAmountNumber(selectedMonthlyBonusRun.bonus_pool_amount ?? monthlyBonusPoolNumber)
+    }
+
+    return null
+  }, [monthlyBonusPoolNumber, monthlyBonusVaultBeforeDisplay, selectedMonthlyBonusRun])
+
+  const canSaveMonthlyBonusDistribution =
+    Boolean(selectedPeriodId) &&
+    isSelectedPeriodMonthlyBonus &&
+    !isSelectedPeriodLocked &&
+    monthlyBonusPoolNumber >= 0 &&
+    !loading
+
   const getRanchCareCount = (item) => {
     return ranchCareMap[String(item.user_id)] || 0
+  }
+
+  const getStaffBonusEligibleMinutes = (item) => {
+    return staffWorkSessionMap[String(item.user_id)]?.bonusEligibleMinutes || 0
   }
 
   const getRanchCarePayAmount = (item) => {
@@ -83,22 +258,24 @@ export default function PayrollClient() {
 
   const totalRanchCareCount = runItems.reduce((sum, item) => sum + getRanchCareCount(item), 0)
   const totalRanchCarePayAmount = runItems.reduce((sum, item) => sum + getRanchCarePayAmount(item), 0)
+  const totalStaffBonusEligibleMinutes = runItems.reduce((sum, item) => sum + getStaffBonusEligibleMinutes(item), 0)
   const totalCalculatedPayAmount = baseTotalCalculatedPayAmount + totalRanchCarePayAmount
   const totalTransferAmount = baseTotalTransferAmount + totalRanchCarePayAmount
 
   const canLockSelectedPeriod =
     Boolean(selectedPeriodId) &&
     !isSelectedPeriodLocked &&
-    runItems.length > 0 &&
-    Boolean(periodSummary)
+    (isSelectedPeriodMonthlyBonus ? hasSavedMonthlyBonusRun : runItems.length > 0 && Boolean(periodSummary))
 
   const lockBlockedReason = !selectedPeriodId
     ? '給与期間を選択してください'
     : isSelectedPeriodLocked
     ? 'この給与期間はすでに確定済みです'
-    : runItems.length === 0
+    : isSelectedPeriodMonthlyBonus && !hasSavedMonthlyBonusRun
+    ? '先に月末ボーナスの「保存・配分作成」をしてください'
+    : !isSelectedPeriodMonthlyBonus && runItems.length === 0
     ? '先に給与プレビューを生成してください'
-    : !periodSummary
+    : !isSelectedPeriodMonthlyBonus && !periodSummary
     ? '先に金庫・牧場・備考の「入力内容を保存」をしてください'
     : ''
 
@@ -113,6 +290,7 @@ export default function PayrollClient() {
     try {
       const currentStore = await fetchCurrentStore()
       setStore(currentStore)
+      await fetchEmployeeProfiles()
       await fetchPayrollRateRuleSets(currentStore.store_id)
       await fetchPayrollPeriods(currentStore.store_id, targetYear, targetMonth)
     } catch (error) {
@@ -253,7 +431,15 @@ export default function PayrollClient() {
       return []
     }
 
-    const nextPeriods = data || []
+    const nextPeriods = (data || []).slice().sort((a, b) => {
+      const orderDiff = getPayrollPeriodSortOrder(a.half_type) - getPayrollPeriodSortOrder(b.half_type)
+      if (orderDiff !== 0) return orderDiff
+
+      const startDiff = String(a.period_start || '').localeCompare(String(b.period_start || ''))
+      if (startDiff !== 0) return startDiff
+
+      return Number(a.payroll_period_id || 0) - Number(b.payroll_period_id || 0)
+    })
     setPeriods(nextPeriods)
 
     if (nextPeriods.length > 0) {
@@ -268,23 +454,37 @@ export default function PayrollClient() {
       const nextSelectedPeriod = nextPeriods.find((p) => String(p.payroll_period_id) === String(nextSelectedPeriodId))
 
       setSelectedPeriodId(nextSelectedPeriodId)
-      await fetchPayrollRunItems(nextSelectedPeriodId)
+      await fetchPayrollRunItems(nextSelectedPeriodId, nextSelectedPeriod)
       await fetchPayrollInputsAndSummary(nextSelectedPeriodId)
       await fetchRanchCareForPeriod(nextSelectedPeriod)
+      await fetchStaffWorkSessionsForMonth(year, month)
+      await fetchMonthlyBonusDistribution(nextSelectedPeriodId, nextSelectedPeriod)
     } else {
       setSelectedPeriodId('')
       setRunItems([])
       setItemEdits({})
       setRanchPayrollLink(null)
       setRanchCareEvents([])
+      setStaffWorkSessions([])
+      setMonthlyBonusRun(null)
+      setMonthlyBonusRunItems([])
+      setMonthlyBonusPoolAmount('0')
       resetPayrollInputsAndSummary()
     }
 
     return nextPeriods
   }
 
-  const fetchPayrollRunItems = async (periodId = selectedPeriodId) => {
+  const fetchPayrollRunItems = async (periodId = selectedPeriodId, periodOverride = null) => {
     if (!periodId) return []
+
+    const targetPeriod = periodOverride || periods.find((period) => String(period.payroll_period_id) === String(periodId))
+
+    if (isMonthlyBonusHalfType(targetPeriod?.half_type)) {
+      setRunItems([])
+      setItemEdits({})
+      return []
+    }
 
     const { data, error } = await supabase
       .from('payroll_run_items')
@@ -449,6 +649,150 @@ export default function PayrollClient() {
     setPreviousVaultAfterAmount(DEFAULT_PREVIOUS_VAULT_AFTER_AMOUNT)
     setPreviousVaultSourceText('前回給与期間がないため、初月用の初期値を表示しています')
     return DEFAULT_PREVIOUS_VAULT_AFTER_AMOUNT
+  }
+
+  const fetchEmployeeProfiles = async () => {
+    const { data, error } = await supabase
+      .from('employee_profiles')
+      .select(`
+        user_id,
+        staff_code,
+        employee_name,
+        employment_status
+      `)
+      .order('staff_code', { ascending: true })
+
+    if (error) {
+      console.error(error)
+      setEmployeeProfiles([])
+      return []
+    }
+
+    const profiles = data || []
+    setEmployeeProfiles(profiles)
+    return profiles
+  }
+
+  const fetchStaffWorkSessionsForMonth = async (
+    year = targetYear,
+    month = targetMonth
+  ) => {
+    if (!year || !month) {
+      setStaffWorkSessions([])
+      return []
+    }
+
+    const monthStart = getDateString(year, month, 1)
+    const monthEnd = getLastDateString(year, month)
+
+    const { data, error } = await supabase
+      .from('staff_work_sessions')
+      .select(`
+        work_session_id,
+        user_id,
+        staff_code,
+        work_date,
+        bonus_eligible_minutes,
+        status
+      `)
+      .gte('work_date', monthStart)
+      .lte('work_date', monthEnd)
+      .order('work_date', { ascending: true })
+      .order('staff_code', { ascending: true })
+
+    if (error) {
+      console.error(error)
+      setStaffWorkSessions([])
+      setMessage(`加算時間情報の取得に失敗しました: ${error.message}`)
+      return []
+    }
+
+    setStaffWorkSessions(data || [])
+    return data || []
+  }
+
+  const fetchStaffWorkSessionsForPayrollPeriod = async (period = selectedPeriod) => {
+    if (period?.target_year && period?.target_month) {
+      return await fetchStaffWorkSessionsForMonth(period.target_year, period.target_month)
+    }
+
+    return await fetchStaffWorkSessionsForMonth(targetYear, targetMonth)
+  }
+
+  const fetchMonthlyBonusDistribution = async (
+    periodId = selectedPeriodId,
+    period = selectedPeriod
+  ) => {
+    if (!periodId || !isMonthlyBonusHalfType(period?.half_type)) {
+      setMonthlyBonusRun(null)
+      setMonthlyBonusRunItems([])
+      if (!isMonthlyBonusHalfType(period?.half_type)) {
+        setMonthlyBonusPoolAmount('0')
+      }
+      return null
+    }
+
+    const { data: runData, error: runError } = await supabase
+      .from('payroll_monthly_bonus_runs')
+      .select(`
+        monthly_bonus_run_id,
+        payroll_period_id,
+        bonus_pool_amount,
+        total_bonus_eligible_minutes,
+        eligible_employee_count,
+        total_distributed_amount,
+        previous_vault_after_amount,
+        vault_after_amount,
+        memo,
+        status
+      `)
+      .eq('payroll_period_id', Number(periodId))
+      .maybeSingle()
+
+    if (runError) {
+      console.error(runError)
+      setMonthlyBonusRun(null)
+      setMonthlyBonusRunItems([])
+      setMessage(`月末ボーナス保存情報の取得に失敗しました: ${runError.message}`)
+      return null
+    }
+
+    if (!runData) {
+      setMonthlyBonusRun(null)
+      setMonthlyBonusRunItems([])
+      setMonthlyBonusPoolAmount('0')
+      return null
+    }
+
+    setMonthlyBonusRun(runData)
+    setMonthlyBonusPoolAmount(String(runData.bonus_pool_amount ?? 0))
+    setPeriodMemo(runData.memo || '')
+
+    const { data: itemData, error: itemError } = await supabase
+      .from('payroll_monthly_bonus_run_items')
+      .select(`
+        monthly_bonus_run_item_id,
+        monthly_bonus_run_id,
+        payroll_period_id,
+        user_id,
+        staff_code,
+        display_name,
+        bonus_eligible_minutes,
+        allocation_ratio,
+        bonus_amount
+      `)
+      .eq('monthly_bonus_run_id', Number(runData.monthly_bonus_run_id))
+      .order('staff_code', { ascending: true })
+
+    if (itemError) {
+      console.error(itemError)
+      setMonthlyBonusRunItems([])
+      setMessage(`月末ボーナス明細の取得に失敗しました: ${itemError.message}`)
+      return runData
+    }
+
+    setMonthlyBonusRunItems(itemData || [])
+    return runData
   }
 
   const fetchPayrollInputsAndSummary = async (periodId = selectedPeriodId) => {
@@ -634,6 +978,11 @@ export default function PayrollClient() {
       return
     }
 
+    if (isSelectedPeriodMonthlyBonus) {
+      setMessage('月末ボーナス期間では通常給与プレビューは生成しません。次のステップで月末ボーナス計算を追加します。')
+      return
+    }
+
     if (!selectedRateRuleSetId) {
       setMessage('単価ルールを選択してください')
       return
@@ -664,9 +1013,14 @@ export default function PayrollClient() {
 
       setSelectedRateRuleSetId(String(selectedRuleSetId))
 
-      await fetchPayrollRunItems(selectedPeriodId)
-      await fetchPayrollInputsAndSummary(selectedPeriodId)
-      await fetchRanchCareForPeriod(selectedPeriod)
+      if (isSelectedPeriodMonthlyBonus) {
+        await fetchMonthlyBonusDistribution(selectedPeriodId, selectedPeriod)
+      } else {
+        await fetchPayrollRunItems(selectedPeriodId)
+        await fetchPayrollInputsAndSummary(selectedPeriodId)
+        await fetchRanchCareForPeriod(selectedPeriod)
+      }
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
 
       setMessage('履歴から給与プレビューを生成しました。選択した単価ルールもこの給与期間に保存しました。')
     } catch (error) {
@@ -707,11 +1061,91 @@ export default function PayrollClient() {
       await fetchPayrollInputsAndSummary(selectedPeriodId)
       await fetchPayrollRunItems(selectedPeriodId)
       await fetchRanchCareForPeriod(selectedPeriod)
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
 
       setMessage('金庫・牧場・備考を保存しました')
     } catch (error) {
       console.error(error)
       setMessage(`保存に失敗しました: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saveMonthlyBonusDistribution = async () => {
+    if (!selectedPeriodId || !isSelectedPeriodMonthlyBonus) {
+      setMessage('月末ボーナス期間を選択してください')
+      return
+    }
+
+    if (isSelectedPeriodLocked) {
+      setMessage('この月末ボーナス期間は確定済みのため保存できません。')
+      return
+    }
+
+    if (monthlyBonusPoolNumber < 0) {
+      setMessage('月末ボーナス原資は0以上で入力してください')
+      return
+    }
+
+    if (monthlyBonusPoolNumber > 0 && totalMonthlyBonusEligibleMinutesAll <= 0) {
+      setMessage('加算対象時間がないため、月末ボーナスを配分できません')
+      return
+    }
+
+    const ok = window.confirm(
+      [
+        monthlyBonusPoolNumber === 0
+          ? '月末ボーナスを0円で保存しますか？'
+          : '月末ボーナス配分を保存しますか？',
+        '',
+        `月末ボーナス原資: ${formatMoney(monthlyBonusPoolNumber)}`,
+        `全員の加算時間合計: ${formatWorkMinutes(totalMonthlyBonusEligibleMinutesAll)}`,
+        `配分合計: ${formatMoney(totalMonthlyBonusPreviewAmount)}`,
+        monthlyBonusPoolNumber === 0 ? '保存済みの配分明細は削除され、次回金庫額への影響も0円になります。' : '',
+      ].filter(Boolean).join('\n')
+    )
+
+    if (!ok) return
+
+    setLoading(true)
+    setMessage('月末ボーナス配分を保存中です...')
+
+    try {
+      const { data, error } = await supabase.rpc('save_monthly_bonus_distribution', {
+        p_payroll_period_id: Number(selectedPeriodId),
+        p_bonus_pool_amount: monthlyBonusPoolNumber,
+        p_memo: periodMemo.trim() === '' ? null : periodMemo.trim(),
+        p_acted_by: 'admin_payroll_ui',
+      })
+
+      if (error) throw error
+
+      const savedRun = Array.isArray(data) && data.length > 0 ? data[0] : null
+
+      const refreshedRun = await fetchMonthlyBonusDistribution(selectedPeriodId, selectedPeriod)
+
+      if (!refreshedRun && savedRun) {
+        setMonthlyBonusRun((prev) => ({
+          ...(prev || {}),
+          ...savedRun,
+          memo: periodMemo.trim() === '' ? null : periodMemo.trim(),
+        }))
+        if (monthlyBonusPoolNumber === 0) {
+          setMonthlyBonusRunItems([])
+        }
+      }
+
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
+
+      setMessage(
+        monthlyBonusPoolNumber === 0
+          ? '月末ボーナスを0円で保存しました。配分明細は削除されています。'
+          : `月末ボーナス配分を保存しました。配分合計: ${formatMoney(totalMonthlyBonusPreviewAmount)}`
+      )
+    } catch (error) {
+      console.error(error)
+      setMessage(`月末ボーナス配分の保存に失敗しました: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -744,9 +1178,14 @@ export default function PayrollClient() {
 
       if (error) throw error
 
-      await fetchPayrollRunItems(selectedPeriodId)
-      await fetchPayrollInputsAndSummary(selectedPeriodId)
-      await fetchRanchCareForPeriod(selectedPeriod)
+      if (isSelectedPeriodMonthlyBonus) {
+        await fetchMonthlyBonusDistribution(selectedPeriodId, selectedPeriod)
+      } else {
+        await fetchPayrollRunItems(selectedPeriodId)
+        await fetchPayrollInputsAndSummary(selectedPeriodId)
+        await fetchRanchCareForPeriod(selectedPeriod)
+      }
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
 
       setMessage(`${item.staff_code} の調整額を保存しました`)
     } catch (error) {
@@ -778,9 +1217,9 @@ export default function PayrollClient() {
         'この給与期間を確定しますか？',
         '',
         '確定すると以下の操作ができなくなります。',
-        '・給与プレビュー再生成',
-        '・個別調整の保存',
-        '・金庫・牧場・備考の保存',
+        isSelectedPeriodMonthlyBonus ? '・月末ボーナス原資の保存' : '・給与プレビュー再生成',
+        isSelectedPeriodMonthlyBonus ? '・月末ボーナス配分の再作成' : '・個別調整の保存',
+        isSelectedPeriodMonthlyBonus ? '・月末ボーナス備考の保存' : '・金庫・牧場・備考の保存',
         '',
         '修正が必要な場合は、後からロック解除できます。',
       ].join('\n')
@@ -807,9 +1246,10 @@ export default function PayrollClient() {
         )
       )
 
-      await fetchPayrollRunItems(selectedPeriodId)
+      await fetchPayrollRunItems(selectedPeriodId, selectedPeriod)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
       await fetchRanchCareForPeriod(selectedPeriod)
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
 
       const result = Array.isArray(data) && data.length > 0 ? data[0] : null
       setMessage(
@@ -866,9 +1306,10 @@ export default function PayrollClient() {
         )
       )
 
-      await fetchPayrollRunItems(selectedPeriodId)
+      await fetchPayrollRunItems(selectedPeriodId, selectedPeriod)
       await fetchPayrollInputsAndSummary(selectedPeriodId)
       await fetchRanchCareForPeriod(selectedPeriod)
+      await fetchStaffWorkSessionsForPayrollPeriod(selectedPeriod)
 
       const result = Array.isArray(data) && data.length > 0 ? data[0] : null
       setMessage(
@@ -898,9 +1339,11 @@ export default function PayrollClient() {
     const nextPeriod = periods.find((period) => String(period.payroll_period_id) === String(value))
 
     setSelectedPeriodId(value)
-    await fetchPayrollRunItems(value)
+    await fetchPayrollRunItems(value, nextPeriod)
     await fetchPayrollInputsAndSummary(value)
     await fetchRanchCareForPeriod(nextPeriod)
+    await fetchStaffWorkSessionsForPayrollPeriod(nextPeriod)
+    await fetchMonthlyBonusDistribution(value, nextPeriod)
   }
 
   const reloadCurrentMonth = async () => {
@@ -913,6 +1356,7 @@ export default function PayrollClient() {
     setMessage('給与期間を再読み込み中です...')
 
     try {
+      await fetchEmployeeProfiles()
       await fetchPayrollRateRuleSets(store.store_id)
 
       const refreshedPeriods = await fetchPayrollPeriods(
@@ -952,6 +1396,27 @@ export default function PayrollClient() {
     return Number(value).toLocaleString()
   }
 
+  const formatWorkMinutes = (minutes) => {
+    const value = Number(minutes || 0)
+
+    if (value <= 0) return '-'
+
+    const hours = Math.floor(value / 60)
+    const mins = value % 60
+
+    if (hours <= 0) return `${mins}分`
+    if (mins <= 0) return `${hours}時間`
+    return `${hours}時間${mins}分`
+  }
+
+  const formatPercent = (value) => {
+    const numberValue = Number(value || 0)
+
+    if (numberValue <= 0) return '-'
+
+    return `${(numberValue * 100).toFixed(1)}%`
+  }
+
   const formatRuleRange = (rule) => {
     if (rule.max_stamp_count === null || rule.max_stamp_count === undefined) {
       return `${rule.min_stamp_count}個以上`
@@ -962,6 +1427,7 @@ export default function PayrollClient() {
   const getPeriodTypeLabel = (halfType) => {
     if (halfType === 'first_half') return '前半'
     if (halfType === 'second_half') return '後半'
+    if (isMonthlyBonusHalfType(halfType)) return '月末ボーナス'
     if (halfType === 'first') return '前半'
     if (halfType === 'second') return '後半'
     if (halfType === '1') return '前半'
@@ -1205,13 +1671,13 @@ export default function PayrollClient() {
                     <button
                       type="button"
                       onClick={buildPreviewForSelectedPeriod}
-                      disabled={loading || !selectedPeriodId || isSelectedPeriodLocked}
+                      disabled={loading || !selectedPeriodId || isSelectedPeriodLocked || isSelectedPeriodMonthlyBonus}
                       style={{
                         ...styles.primaryButton,
-                        ...((loading || !selectedPeriodId || isSelectedPeriodLocked) ? styles.disabledButton : {}),
+                        ...((loading || !selectedPeriodId || isSelectedPeriodLocked || isSelectedPeriodMonthlyBonus) ? styles.disabledButton : {}),
                       }}
                     >
-                      履歴からプレビュー生成
+                      {isSelectedPeriodMonthlyBonus ? '月末ボーナスは次のステップで作成' : '履歴からプレビュー生成'}
                     </button>
                   </div>
                 </>
@@ -1223,8 +1689,8 @@ export default function PayrollClient() {
             <section style={styles.summaryGrid}>
               <SummaryCard label="選択期間" value={selectedPeriod ? getPeriodTypeLabel(selectedPeriod.half_type) : '-'} sub={selectedPeriod ? `${formatDate(selectedPeriod.period_start)} ～ ${formatDate(selectedPeriod.period_end)}` : '給与期間を選択してください'} />
               <SummaryCard label="状態" value={selectedPeriod ? getPeriodStatusLabel(selectedPeriod.status) : '-'} sub={isSelectedPeriodLocked ? '支払い確認済み・編集不可' : '編集中・保存可能'} />
-              <SummaryCard label="総支給額" value={formatMoney(totalCalculatedPayAmount)} sub={`通常 ${formatMoney(baseTotalCalculatedPayAmount)} / 牧場 ${formatMoney(totalRanchCarePayAmount)}`} />
-              <SummaryCard label="振込額合計" value={formatMoney(totalTransferAmount)} sub={`調整額 ${formatMoney(totalAdjustmentAmount)} / 牧場回数 ${totalRanchCareCount}`} />
+              <SummaryCard label={isSelectedPeriodMonthlyBonus ? 'ボーナス原資' : '総支給額'} value={isSelectedPeriodMonthlyBonus ? formatMoney(monthlyBonusPoolNumber) : formatMoney(totalCalculatedPayAmount)} sub={isSelectedPeriodMonthlyBonus ? '入力した月末ボーナス原資' : `通常 ${formatMoney(baseTotalCalculatedPayAmount)} / 牧場 ${formatMoney(totalRanchCarePayAmount)}`} />
+              <SummaryCard label={isSelectedPeriodMonthlyBonus ? '月内加算合計' : '振込額合計'} value={isSelectedPeriodMonthlyBonus ? formatWorkMinutes(totalMonthlyBonusEligibleMinutesAll) : formatMoney(totalTransferAmount)} sub={isSelectedPeriodMonthlyBonus ? `対象者 ${monthlyBonusEligibleUserCount}名` : `調整額 ${formatMoney(totalAdjustmentAmount)} / 加算時間 ${formatWorkMinutes(totalStaffBonusEligibleMinutes)}`} />
             </section>
 
             <section style={isSelectedPeriodLocked ? styles.lockPanel : styles.panel}>
@@ -1283,21 +1749,25 @@ export default function PayrollClient() {
                 <div>
                   <h2 style={styles.mainTitle}>給与プレビュー</h2>
                   <p style={styles.mainDescription}>
-                    出勤履歴・スタンプ履歴・牧場お世話記録から、支給額を確認します。
+                    出勤履歴・スタンプ履歴・月内加算時間・牧場お世話記録から、支給額を確認します。
                   </p>
                 </div>
 
-                <div style={styles.previewInfoBox}>
-                  <div style={styles.previewInfoLabel}>牧場お世話単価</div>
-                  <div style={styles.previewInfoValue}>{formatMoney(ranchUnitCarePay)}</div>
-                </div>
+                {!isSelectedPeriodMonthlyBonus && (
+                  <div style={styles.previewInfoBox}>
+                    <div style={styles.previewInfoLabel}>牧場お世話単価</div>
+                    <div style={styles.previewInfoValue}>{formatMoney(ranchUnitCarePay)}</div>
+                  </div>
+                )}
               </div>
 
-              {runItems.length === 0 ? (
+              {(isSelectedPeriodMonthlyBonus || runItems.length === 0) ? (
                 <div style={styles.emptyBox}>
-                  給与プレビューはまだありません。
+                  {isSelectedPeriodMonthlyBonus ? '月末ボーナスは下の専用画面で保存・配分します。' : '給与プレビューはまだありません。'}
                   <br />
-                  左側で給与期間と単価ルールを選択し、「履歴からプレビュー生成」を押してください。
+                  {isSelectedPeriodMonthlyBonus
+                    ? 'この期間では通常給与のプレビュー生成は使用しません。'
+                    : '左側で給与期間と単価ルールを選択し、「履歴からプレビュー生成」を押してください。'}
                 </div>
               ) : (
                 <div style={styles.tableWrap}>
@@ -1306,6 +1776,7 @@ export default function PayrollClient() {
                       <col style={{ width: '82px' }} />
                       <col style={{ width: '110px' }} />
                       <col style={{ width: '58px' }} />
+                      <col style={{ width: '82px' }} />
                       <col style={{ width: '72px' }} />
                       <col style={{ width: '82px' }} />
                       <col style={{ width: '88px' }} />
@@ -1321,6 +1792,7 @@ export default function PayrollClient() {
                         <th style={styles.th}>コード</th>
                         <th style={styles.th}>氏名</th>
                         <th style={styles.th}>出勤</th>
+                        <th style={styles.th}><HeaderTwoLine top="今月" bottom="加算" /></th>
                         <th style={styles.th}><HeaderTwoLine top="締め時" bottom="スタンプ" /></th>
                         <th style={styles.th}>単価</th>
                         <th style={styles.th}><HeaderTwoLine top="通常" bottom="支給" /></th>
@@ -1342,6 +1814,7 @@ export default function PayrollClient() {
                         const rowLocked = isSelectedPeriodLocked || item.is_locked
                         const ranchCareCount = getRanchCareCount(item)
                         const ranchCarePayAmount = getRanchCarePayAmount(item)
+                        const staffBonusEligibleMinutes = getStaffBonusEligibleMinutes(item)
                         const totalPayAmount = getTotalCalculatedPayAmount(item)
                         const totalTransfer = getTotalTransferAmount(item)
 
@@ -1350,6 +1823,7 @@ export default function PayrollClient() {
                             <td style={styles.tdStrong}>{item.staff_code}</td>
                             <td style={styles.td}>{item.display_name}</td>
                             <td style={styles.tdCenter}>{item.attendance_count}</td>
+                            <td style={styles.tdCenter}>{formatWorkMinutes(staffBonusEligibleMinutes)}</td>
                             <td style={styles.tdCenter}>{item.stamp_count_at_close}</td>
                             <td style={styles.td}>{formatMoney(item.applied_unit_pay)}</td>
                             <td style={styles.tdStrong}>{formatMoney(item.calculated_pay_amount)}</td>
@@ -1391,141 +1865,300 @@ export default function PayrollClient() {
             </section>
 
             <div style={styles.bottomGrid}>
-              <section style={styles.panel}>
-                <div style={styles.mainSectionHeader}>
-                  <div>
-                    <h2 style={styles.mainTitle}>金庫・牧場・備考</h2>
-                    <p style={styles.mainDescription}>
-                      前回支払い後の金庫額、今回支払い前の金庫額、牧場管理から反映された牧場利益、イベント等のメモを保存します。
-                    </p>
-                  </div>
+              {isSelectedPeriodMonthlyBonus ? (
+                <>
+                  <section style={styles.panel}>
+                    <div style={styles.mainSectionHeader}>
+                      <div>
+                        <h2 style={styles.mainTitle}>月末ボーナス設定</h2>
+                        <p style={styles.mainDescription}>
+                          月末ボーナスでは、金庫額や牧場支給は使わず、ボーナス原資と月内加算時間で配分します。
+                        </p>
+                      </div>
+                    </div>
 
-                  <Link href="/admin/staff/ranch" style={styles.headerLinkButton}>
-                    牧場管理を開く
-                  </Link>
-                </div>
+                    <div style={styles.formGridTwo}>
+                      <label>
+                        <div style={styles.inputLabel}>月末ボーナス原資</div>
+                        <input
+                          type="text"
+                          value={monthlyBonusPoolAmount}
+                          onChange={handleAmountChange(setMonthlyBonusPoolAmount)}
+                          disabled={isSelectedPeriodLocked}
+                          style={{
+                            ...styles.input,
+                            ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
+                          }}
+                          placeholder="例: 300000000"
+                        />
+                        <p style={styles.autoNote}>
+                          この金額を、各従業員の「今月加算」の割合で配分します。
+                        </p>
+                      </label>
 
-                <div style={styles.formGridTwo}>
-                  <label>
-                    <div style={styles.inputLabel}>前回支払い後金庫額</div>
-                    <input
-                      type="text"
-                      value={formatMoney(previousVaultAfterAmount)}
-                      readOnly
-                      style={styles.readOnlyInput}
-                    />
-                    <p style={styles.autoNote}>{previousVaultSourceText}</p>
-                  </label>
+                      <label>
+                        <div style={styles.inputLabel}>全員の加算時間合計</div>
+                        <input
+                          type="text"
+                          value={formatWorkMinutes(totalMonthlyBonusEligibleMinutesAll)}
+                          readOnly
+                          style={styles.readOnlyInput}
+                        />
+                        <p style={styles.autoNote}>
+                          対象者: {monthlyBonusEligibleUserCount}名 / 月内の staff_work_sessions から自動集計しています。
+                        </p>
+                      </label>
+                    </div>
 
-                  <label>
-                    <div style={styles.inputLabel}>牧場利益（牧場管理から反映）</div>
-                    <input
-                      type="text"
-                      value={formatMoney(ranchPayrollLink?.ranch_profit_amount ?? ranchProfitAmount)}
-                      readOnly
-                      style={styles.readOnlyInput}
-                    />
-                    <p style={styles.autoNote}>
-                      {ranchPayrollLink
-                        ? `最終反映: ${formatDateTime(ranchPayrollLink.applied_at)}`
-                        : 'まだ牧場管理から反映されていません。'}
-                    </p>
-                  </label>
+                    <div style={{ ...styles.summaryList, marginTop: '14px' }}>
+                      <SummaryLine
+                        label="前回支払い後金庫額"
+                        value={monthlyBonusVaultBeforeDisplay !== null && monthlyBonusVaultBeforeDisplay !== undefined ? formatMoney(monthlyBonusVaultBeforeDisplay) : '未保存'}
+                      />
+                      <SummaryLine
+                        label="月末ボーナス額"
+                        value={formatMoney(monthlyBonusPoolNumber)}
+                      />
+                      <SummaryLine
+                        label="月末ボーナス後金庫額"
+                        value={monthlyBonusVaultAfterDisplay !== null && monthlyBonusVaultAfterDisplay !== undefined ? formatMoney(monthlyBonusVaultAfterDisplay) : '保存後に表示'}
+                      />
+                    </div>
 
-                  <label>
-                    <div style={styles.inputLabel}>今回の支払い前金庫額</div>
-                    <input
-                      type="text"
-                      value={vaultBeforeAmount}
-                      onChange={handleAmountChange(setVaultBeforeAmount)}
-                      disabled={isSelectedPeriodLocked}
-                      style={{
-                        ...styles.input,
-                        ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
-                      }}
-                    />
-                  </label>
+                    <div style={styles.calcNoteBox}>
+                      個人ボーナス額 = 月末ボーナス原資 × 個人の加算時間 ÷ 全員の加算時間合計
+                      <br />
+                      原資を0円で保存すると、保存済みの月末ボーナス配分を0円に戻せます。
+                      <br />
+                      例: 原資300,000,000、全員合計10時間、個人2時間の場合 → 60,000,000
+                    </div>
 
-                  <label>
-                    <div style={styles.inputLabel}>その他収入</div>
-                    <input
-                      type="text"
-                      value={extraIncomeAmount}
-                      onChange={handleAmountChange(setExtraIncomeAmount)}
-                      disabled={isSelectedPeriodLocked}
-                      style={{
-                        ...styles.input,
-                        ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
-                      }}
-                    />
-                  </label>
-                </div>
+                    <label style={{ display: 'block', marginTop: '14px' }}>
+                      <div style={styles.inputLabel}>備考</div>
+                      <textarea
+                        value={periodMemo}
+                        onChange={(e) => setPeriodMemo(e.target.value)}
+                        disabled={isSelectedPeriodLocked}
+                        style={{
+                          ...styles.textarea,
+                          ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
+                        }}
+                        placeholder="月末ボーナスのメモなど"
+                      />
+                    </label>
 
-                <div style={styles.calcNoteBox}>
-                  営業利益 = 今回の支払い前金庫額 - 前回支払い後金庫額 + その他収入
-                  <br />
-                  経常利益 = 営業利益 + 牧場利益
-                </div>
+                    <div style={{ marginTop: '16px' }}>
+                      <button
+                        type="button"
+                        onClick={saveMonthlyBonusDistribution}
+                        disabled={!canSaveMonthlyBonusDistribution}
+                        style={{
+                          ...styles.primaryButton,
+                          ...(!canSaveMonthlyBonusDistribution ? styles.disabledButton : {}),
+                        }}
+                      >
+                        {isSelectedPeriodLocked ? '確定済み' : '保存・配分作成'}
+                      </button>
+                    </div>
+                  </section>
 
-                <label style={{ display: 'block', marginTop: '14px' }}>
-                  <div style={styles.inputLabel}>備考</div>
-                  <textarea
-                    value={periodMemo}
-                    onChange={(e) => setPeriodMemo(e.target.value)}
-                    disabled={isSelectedPeriodLocked}
-                    style={{
-                      ...styles.textarea,
-                      ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
-                    }}
-                    placeholder="イベント、特記事項、支払いメモなど"
-                  />
-                </label>
+                  <section style={styles.panel}>
+                    <div style={styles.mainSectionHeader}>
+                      <div>
+                        <h2 style={styles.mainTitle}>月末ボーナス配分プレビュー</h2>
+                        <p style={styles.mainDescription}>
+                          月末ボーナス原資を、今月加算時間の割合で従業員別に配分します。
+                        </p>
+                      </div>
+                    </div>
 
-                <div style={{ marginTop: '16px' }}>
-                  <button
-                    type="button"
-                    onClick={savePayrollInputs}
-                    disabled={loading || !selectedPeriodId || isSelectedPeriodLocked}
-                    style={{
-                      ...styles.primaryButton,
-                      ...((loading || !selectedPeriodId || isSelectedPeriodLocked) ? styles.disabledButton : {}),
-                    }}
-                  >
-                    {isSelectedPeriodLocked ? '確定済み' : '入力内容を保存'}
-                  </button>
-                </div>
-              </section>
+                    <div style={styles.summaryList}>
+                      <SummaryLine label="月末ボーナス原資" value={formatMoney(monthlyBonusPoolNumber)} />
+                      <SummaryLine label="保存済み配分合計" value={formatMoney(selectedMonthlyBonusRun?.total_distributed_amount ?? 0)} />
+                      <SummaryLine label="前回支払い後金庫額" value={monthlyBonusVaultBeforeDisplay !== null && monthlyBonusVaultBeforeDisplay !== undefined ? formatMoney(monthlyBonusVaultBeforeDisplay) : '未保存'} />
+                      <SummaryLine label="月末ボーナス後金庫額" value={monthlyBonusVaultAfterDisplay !== null && monthlyBonusVaultAfterDisplay !== undefined ? formatMoney(monthlyBonusVaultAfterDisplay) : '保存後に表示'} />
+                      <SummaryLine label="全員の加算時間合計" value={formatWorkMinutes(totalMonthlyBonusEligibleMinutesAll)} />
+                      <SummaryLine label="加算対象者数" value={`${monthlyBonusEligibleUserCount}名`} />
+                      <SummaryLine label="プレビュー配分合計" value={formatMoney(totalMonthlyBonusPreviewAmount)} />
+                    </div>
 
-              <section style={styles.panel}>
-                <div style={styles.mainSectionHeader}>
-                  <div>
-                    <h2 style={styles.mainTitle}>給与期間集計</h2>
-                    <p style={styles.mainDescription}>
-                      保存済みの金庫・牧場情報と給与額から自動計算します。
-                    </p>
-                  </div>
-                </div>
+                    {monthlyBonusDistributionRows.length === 0 ? (
+                      <div style={{ ...styles.emptyMini, marginTop: '14px' }}>
+                        月末ボーナス原資が0円の場合、従業員別の配分額は作成されません。
+                        <br />
+                        原資を入力すると、従業員別の配分額が表示されます。
+                      </div>
+                    ) : (
+                      <div style={{ ...styles.tableWrap, marginTop: '14px' }}>
+                        <table style={{ ...styles.table, minWidth: '620px' }}>
+                          <colgroup>
+                            <col style={{ width: '160px' }} />
+                            <col style={{ width: '120px' }} />
+                            <col style={{ width: '90px' }} />
+                            <col style={{ width: '130px' }} />
+                          </colgroup>
+                          <thead>
+                            <tr>
+                              <th style={styles.th}>氏名</th>
+                              <th style={styles.th}>加算時間</th>
+                              <th style={styles.th}>割合</th>
+                              <th style={styles.th}>ボーナス額</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthlyBonusDistributionRows.map((row) => (
+                              <tr key={row.userId}>
+                                <td style={styles.tdStrong}>{row.employeeName}</td>
+                                <td style={styles.tdCenter}>{formatWorkMinutes(row.bonusEligibleMinutes)}</td>
+                                <td style={styles.tdCenter}>{formatPercent(row.rate)}</td>
+                                <td style={styles.transferTd}>{formatMoney(row.bonusAmount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </section>
+                </>
+              ) : (
+                <>
+                  <section style={styles.panel}>
+                    <div style={styles.mainSectionHeader}>
+                      <div>
+                        <h2 style={styles.mainTitle}>金庫・牧場・備考</h2>
+                        <p style={styles.mainDescription}>
+                          前回支払い後の金庫額、今回支払い前の金庫額、牧場管理から反映された牧場利益、イベント等のメモを保存します。
+                        </p>
+                      </div>
 
-                {periodSummary ? (
-                  <div style={styles.summaryList}>
-                    <SummaryLine label="通常支給額" value={formatMoney(baseTotalCalculatedPayAmount)} />
-                    <SummaryLine label="牧場お世話支給額" value={formatMoney(totalRanchCarePayAmount)} />
-                    <SummaryLine label="総支給額" value={formatMoney(totalCalculatedPayAmount)} />
-                    <SummaryLine label="振込額合計" value={formatMoney(totalTransferAmount)} />
-                    <SummaryLine label="調整額合計" value={formatMoney(totalAdjustmentAmount)} />
-                    <SummaryLine label="牧場利益" value={formatMoney(periodSummary.ranch_profit_amount)} />
-                    <SummaryLine label="今回の支払い前金庫額" value={formatMoney(periodSummary.vault_before_amount)} />
-                    <SummaryLine label="金庫 + 牧場" value={formatMoney(periodSummary.vault_plus_ranch_amount)} />
-                    <SummaryLine label="支払い後金額" value={formatMoney(periodSummary.vault_after_amount)} />
-                    <SummaryLine label="営業利益" value={formatMoney(periodSummary.store_profit_amount)} />
-                    <SummaryLine label="経常利益" value={formatMoney(periodSummary.total_profit_amount)} />
-                  </div>
-                ) : (
-                  <div style={styles.emptyMini}>
-                    金庫・牧場・備考を保存すると、ここに集計結果が表示されます。
-                  </div>
-                )}
-              </section>
+                      <Link href="/admin/staff/ranch" style={styles.headerLinkButton}>
+                        牧場管理を開く
+                      </Link>
+                    </div>
+
+                    <div style={styles.formGridTwo}>
+                      <label>
+                        <div style={styles.inputLabel}>前回支払い後金庫額</div>
+                        <input
+                          type="text"
+                          value={formatMoney(previousVaultAfterAmount)}
+                          readOnly
+                          style={styles.readOnlyInput}
+                        />
+                        <p style={styles.autoNote}>{previousVaultSourceText}</p>
+                      </label>
+
+                      <label>
+                        <div style={styles.inputLabel}>牧場利益（牧場管理から反映）</div>
+                        <input
+                          type="text"
+                          value={formatMoney(ranchPayrollLink?.ranch_profit_amount ?? ranchProfitAmount)}
+                          readOnly
+                          style={styles.readOnlyInput}
+                        />
+                        <p style={styles.autoNote}>
+                          {ranchPayrollLink
+                            ? `最終反映: ${formatDateTime(ranchPayrollLink.applied_at)}`
+                            : 'まだ牧場管理から反映されていません。'}
+                        </p>
+                      </label>
+
+                      <label>
+                        <div style={styles.inputLabel}>今回の支払い前金庫額</div>
+                        <input
+                          type="text"
+                          value={vaultBeforeAmount}
+                          onChange={handleAmountChange(setVaultBeforeAmount)}
+                          disabled={isSelectedPeriodLocked}
+                          style={{
+                            ...styles.input,
+                            ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
+                          }}
+                        />
+                      </label>
+
+                      <label>
+                        <div style={styles.inputLabel}>その他収入</div>
+                        <input
+                          type="text"
+                          value={extraIncomeAmount}
+                          onChange={handleAmountChange(setExtraIncomeAmount)}
+                          disabled={isSelectedPeriodLocked}
+                          style={{
+                            ...styles.input,
+                            ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={styles.calcNoteBox}>
+                      営業利益 = 今回の支払い前金庫額 - 前回支払い後金庫額 + その他収入
+                      <br />
+                      経常利益 = 営業利益 + 牧場利益
+                    </div>
+
+                    <label style={{ display: 'block', marginTop: '14px' }}>
+                      <div style={styles.inputLabel}>備考</div>
+                      <textarea
+                        value={periodMemo}
+                        onChange={(e) => setPeriodMemo(e.target.value)}
+                        disabled={isSelectedPeriodLocked}
+                        style={{
+                          ...styles.textarea,
+                          ...(isSelectedPeriodLocked ? styles.disabledInput : {}),
+                        }}
+                        placeholder="イベント、特記事項、支払いメモなど"
+                      />
+                    </label>
+
+                    <div style={{ marginTop: '16px' }}>
+                      <button
+                        type="button"
+                        onClick={savePayrollInputs}
+                        disabled={loading || !selectedPeriodId || isSelectedPeriodLocked}
+                        style={{
+                          ...styles.primaryButton,
+                          ...((loading || !selectedPeriodId || isSelectedPeriodLocked) ? styles.disabledButton : {}),
+                        }}
+                      >
+                        {isSelectedPeriodLocked ? '確定済み' : '入力内容を保存'}
+                      </button>
+                    </div>
+                  </section>
+
+                  <section style={styles.panel}>
+                    <div style={styles.mainSectionHeader}>
+                      <div>
+                        <h2 style={styles.mainTitle}>給与期間集計</h2>
+                        <p style={styles.mainDescription}>
+                          保存済みの金庫・牧場情報と給与額から自動計算します。
+                        </p>
+                      </div>
+                    </div>
+
+                    {periodSummary ? (
+                      <div style={styles.summaryList}>
+                        <SummaryLine label="通常支給額" value={formatMoney(baseTotalCalculatedPayAmount)} />
+                        <SummaryLine label="牧場お世話支給額" value={formatMoney(totalRanchCarePayAmount)} />
+                        <SummaryLine label="総支給額" value={formatMoney(totalCalculatedPayAmount)} />
+                        <SummaryLine label="振込額合計" value={formatMoney(totalTransferAmount)} />
+                        <SummaryLine label="調整額合計" value={formatMoney(totalAdjustmentAmount)} />
+                        <SummaryLine label="牧場利益" value={formatMoney(periodSummary.ranch_profit_amount)} />
+                        <SummaryLine label="今回の支払い前金庫額" value={formatMoney(periodSummary.vault_before_amount)} />
+                        <SummaryLine label="金庫 + 牧場" value={formatMoney(periodSummary.vault_plus_ranch_amount)} />
+                        <SummaryLine label="支払い後金額" value={formatMoney(periodSummary.vault_after_amount)} />
+                        <SummaryLine label="営業利益" value={formatMoney(periodSummary.store_profit_amount)} />
+                        <SummaryLine label="経常利益" value={formatMoney(periodSummary.total_profit_amount)} />
+                      </div>
+                    ) : (
+                      <div style={styles.emptyMini}>
+                        金庫・牧場・備考を保存すると、ここに集計結果が表示されます。
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
             </div>
           </main>
         </div>
@@ -2093,7 +2726,7 @@ const styles = {
     width: '100%',
     borderCollapse: 'collapse',
     tableLayout: 'fixed',
-    minWidth: '1014px',
+    minWidth: '1096px',
   },
   th: {
     background: theme.pale,

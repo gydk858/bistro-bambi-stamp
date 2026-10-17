@@ -1,0 +1,34 @@
+import { eventDB, currentEventStore } from '@/lib/event-server'
+import { isEventAdmin, adminEvent, eventAssets, eventCards, eventFields, eventReply as reply, sameOrigin } from '@/lib/event-access'
+export const dynamic = 'force-dynamic'
+export async function GET(request) {
+  if (!await isEventAdmin()) return reply({ error: '管理ログインをやり直してください。' }, 401)
+  try {
+    const db=eventDB(), q=new URL(request.url).searchParams, id=q.get('event_id')
+    if(!id) {
+      const { data,error }=await db.from('bambi_events').select(eventFields).eq('store_id',await currentEventStore(db)).order('created_at',{ascending:false}).limit(1000)
+      if(error)throw error
+      return reply({events:data})
+    }
+    const event=await adminEvent(db,id)
+    if(!event)return reply({error:'イベントが見つかりません。'},404)
+    const [cards,assets,total]=await Promise.all([eventCards(db,id,q),eventAssets(db,id),db.from('bambi_event_cards').select('id',{head:true,count:'exact'}).eq('event_id',id)])
+    if(total.error)throw total.error
+    return reply({event,...cards,assets,has_cards:total.count>0})
+  }catch(e){return reply({error:e.message||'取得に失敗しました。'},500)}
+}
+export async function POST(request) {
+  if(!await isEventAdmin())return reply({error:'管理ログインをやり直してください。'},401)
+  if(!sameOrigin(request))return reply({error:'操作元を確認できません。'},403)
+  try {
+    const payload=await request.json()
+    if(JSON.stringify(payload).length>100000)return reply({error:'設定が大きすぎます。'},400)
+    const db=eventDB()
+    const {data,error}=await db.rpc('bambi_event_action_v2',{p_store_id:await currentEventStore(db),p_action:payload.action,p_data:payload,p_access_token:null})
+    if(error)return reply({error:error.message},400)
+    let warning=''
+    if(data?.storage_paths?.length){try{const {error:cleanup}=await db.storage.from('bambi-event-assets').remove(data.storage_paths);if(cleanup)warning='削除は完了しましたが、画像ファイルの後片付けに失敗しました。Storage内に未使用ファイルが残っています。'}catch{warning='削除は完了しましたが、Storage内に未使用ファイルが残っています。'}}
+    const {storage_paths,...result}=data||{}
+    return reply({result,warning})
+  }catch(e){return reply({error:e.message||'保存に失敗しました。'},500)}
+}
