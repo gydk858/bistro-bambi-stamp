@@ -32,7 +32,8 @@ export async function POST(request) {
     let warning=''
     if(data?.storage_paths?.length){try{const {error:cleanup}=await db.storage.from('bambi-event-assets').remove(data.storage_paths);if(cleanup)warning='削除は完了しましたが、画像ファイルの後片付けに失敗しました。Storage内に未使用ファイルが残っています。'}catch{warning='削除は完了しましたが、Storage内に未使用ファイルが残っています。'}}
     if(data?.print_paths?.length){for(let i=0;i<data.print_paths.length;i+=100){const {error:cleanup}=await db.storage.from('bambi-event-prints').remove(data.print_paths.slice(i,i+100));if(cleanup)warning='削除は完了しましたが、印刷画像の後片付けに失敗しました。'}}
-    const {storage_paths,print_paths,...result}=data||{}
+    if(data?.live_paths?.length){for(let i=0;i<data.live_paths.length;i+=100){const {error:cleanup}=await db.storage.from('bambi-event-live').remove(data.live_paths.slice(i,i+100));if(cleanup)warning='削除は完了しましたが、公開画像の削除に失敗しました。Supabase Storageのbambi-event-liveから対象画像を削除してください。'}}
+    const {storage_paths,print_paths,live_paths,...result}=data||{}
     return reply({result,warning,...(['create_card','update_card','stamp_card','update_name'].includes(payload.action)?await prepareCardPrint(db,result):{})})
   }catch(e){return reply({error:e.message||'保存に失敗しました。'},500)}
 }

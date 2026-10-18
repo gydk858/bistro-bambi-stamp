@@ -1,3 +1,4 @@
+import { staffFixDescription } from "@/lib/staff-fix-description";
 import { createClient } from "@supabase/supabase-js";
 import nacl from "tweetnacl";
 
@@ -885,7 +886,7 @@ async function processStaffFix({
 
   const beforeCard = await getStaffCardByUserIdOrThrow(supabase, userId);
 
-  const { error } = await supabase.rpc("staff_fix_work_session", {
+  const { data: fixDetails, error } = await supabase.rpc("staff_fix_work_session_with_details", {
     p_user_id: Number(userId),
     p_work_date: workDate,
     p_clock_in_time: clockInTime || null,
@@ -915,7 +916,7 @@ async function processStaffFix({
   await syncStaffCard(req, userId);
   await sleep(800);
 
-  return await getStaffCardWithStatusByUserIdOrThrow(supabase, userId);
+  return { card: await getStaffCardWithStatusByUserIdOrThrow(supabase, userId), fixDetails };
 }
 
 async function createCard({ req, name, actedBy }) {
@@ -1462,7 +1463,7 @@ export async function POST(req) {
           return new Response(null, { status: 202 });
         }
 
-        const updatedCard = await processStaffFix({
+        const { card: updatedCard, fixDetails } = await processStaffFix({
           req,
           userId,
           workDate,
@@ -1479,7 +1480,7 @@ export async function POST(req) {
           (imageUrl) =>
             buildStaffPanelPayload(
               updatedCard,
-              `${operatorName} さんが勤務時間を修正しました。`,
+              staffFixDescription(operatorName, fixDetails),
               imageUrl
             )
         );
