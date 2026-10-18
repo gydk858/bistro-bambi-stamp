@@ -1,4 +1,4 @@
-import { prepareCardPrint, cardPrintContext } from '@/lib/event-print'
+import { prepareCardPrint, cardPrintContext, directCardPrint } from '@/lib/event-print'
 import { eventDB } from '@/lib/event-server'
 import { operatorEvent, eventAssets, eventCards, eventReply as reply, sameOrigin } from '@/lib/event-access'
 export const dynamic = 'force-dynamic'
@@ -18,7 +18,8 @@ export async function POST(request) {
     const token=request.headers.get('x-event-access'),db=eventDB(),event=await operatorEvent(db,token)
     if(!event)return reply({error:'専用入口が停止中、終了済み、またはURLが変更されています。'},403)
     const p=await request.json()
-    if(!['create_card','update_card','update_name','stamp_card','prepare_card'].includes(p.action))return reply({error:'この操作はできません。'},403)
+    if(!['create_card','update_card','update_name','stamp_card','prepare_card','direct_print'].includes(p.action))return reply({error:'この操作はできません。'},403)
+    if(p.action==='direct_print')return reply(await directCardPrint(db,p.card_id,event.id))
     if(p.action==='prepare_card'){const {card}=await cardPrintContext(db,p.card_id,event.id);return reply({result:card,...await prepareCardPrint(db,card)})}
     // 認証済みイベントIDだけを使用。外部から指定されたevent_idは使わない。
     const payload={event_id:event.id,card_id:p.card_id,version:p.version,issue_key:p.issue_key,display_name:p.display_name,stamps:p.stamps,marked_slots:p.marked_slots,reason:p.reason,operation_id:p.operation_id,delta:p.delta,slot_id:p.slot_id,pressed:p.pressed}

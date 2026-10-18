@@ -1,4 +1,4 @@
-import { prepareCardPrint, cardPrintContext } from '@/lib/event-print'
+import { prepareCardPrint, cardPrintContext, directCardPrint } from '@/lib/event-print'
 import { eventDB, currentEventStore } from '@/lib/event-server'
 import { isEventAdmin, adminEvent, eventAssets, eventCards, eventFields, eventReply as reply, sameOrigin } from '@/lib/event-access'
 export const dynamic = 'force-dynamic'
@@ -25,6 +25,7 @@ export async function POST(request) {
     const payload=await request.json()
     if(JSON.stringify(payload).length>100000)return reply({error:'設定が大きすぎます。'},400)
     const db=eventDB()
+    if(payload.action==='direct_print'){const event=await adminEvent(db,payload.event_id);if(!event)return reply({error:'イベントが見つかりません。'},404);return reply(await directCardPrint(db,payload.card_id,event.id))}
     if(payload.action==='prepare_card'){const event=await adminEvent(db,payload.event_id);if(!event)return reply({error:'イベントが見つかりません。'},404);const {card}=await cardPrintContext(db,payload.card_id,event.id);return reply({result:card,...await prepareCardPrint(db,card)})}
     const {data,error}=await db.rpc('bambi_event_action_v2',{p_store_id:await currentEventStore(db),p_action:payload.action,p_data:payload,p_access_token:null})
     if(error)return reply({error:error.message},400)
