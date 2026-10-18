@@ -5,7 +5,7 @@ import PuzzleEditor, { PuzzleBoard } from '@/components/events/PuzzleEditor'
 import { puzzleLayout } from '@/lib/puzzle-geometry'
 import s from './events.module.css'
 const statuses={draft:'準備中',active:'開催中',ended:'終了'}
-const types={sequential:'1．スタンプ（順番）',specific:'2．スタンプ（場所指定）',puzzle:'画像パズル',bingo:'3．ビンゴ（今後対応）',other:'4．その他（今後対応）'}
+const types={sequential:'1．スタンプ（順番）',specific:'2．スタンプ（場所指定）',puzzle:'3．画像パズル',bingo:'4．ビンゴ（今後対応）',other:'5．その他（今後対応）'}
 const blank={name:'',description:'',starts_on:'',ends_on:'',status:'draft',event_type:'sequential',max_stamps:1}
 function Fields({form,setForm,existing,locked}) {
  const field=k=>({value:form[k]??'',onChange:e=>setForm({...form,[k]:e.target.value,...(k==='event_type'?{layout:e.target.value==='puzzle'?puzzleLayout():newLayout()}: {})})})

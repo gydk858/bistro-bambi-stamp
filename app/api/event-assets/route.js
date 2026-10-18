@@ -8,14 +8,14 @@ export async function POST(request) {
  if(!sameOrigin(request))return reply({error:'操作元を確認できません。'},403)
  try {
   const form=await request.formData(),id=form.get('event_id'),kind=form.get('kind'),file=form.get('file'),db=eventDB()
-  if(!['background','stamp'].includes(kind)||!file||typeof file.arrayBuffer!=='function'||file.size>2*1024*1024)return reply({error:'PNG・JPEG・WebPの2MB以下の画像を選んでください。'},400)
+  if(!['background','stamp','puzzle_base'].includes(kind)||!file||typeof file.arrayBuffer!=='function'||file.size>2*1024*1024)return reply({error:'PNG・JPEG・WebPの2MB以下の画像を選んでください。'},400)
   const event=await adminEvent(db,id);if(!event)return reply({error:'イベントが見つかりません。'},404)
   const {count,error:checkError}=await db.from('bambi_event_cards').select('id',{count:'exact',head:true}).eq('event_id',id)
   if(checkError)throw checkError
   if(count)return reply({error:'カード発行後は画像を変更できません。'},400)
   const input=Buffer.from(await file.arrayBuffer()),pipeline=sharp(input,{limitInputPixels:40000000}),meta=await pipeline.metadata()
   if(!['png','jpeg','webp'].includes(meta.format)||meta.pages>1)return reply({error:'静止画のPNG・JPEG・WebPを選んでください。'},400)
-  const limit=kind==='background'?1600:512
+  const limit=kind==='stamp'?512:1600
   const {data:png,info}=await pipeline.rotate().resize({width:limit,height:limit,fit:'inside',withoutEnlargement:true}).png().toBuffer({resolveWithObject:true})
   if(png.length>5*1024*1024)return reply({error:'画像が大きすぎます。解像度を下げてください。'},400)
   const assetId=randomUUID(),storagePath=`${id}/${assetId}.png`
