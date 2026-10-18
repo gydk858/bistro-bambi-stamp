@@ -1,3 +1,4 @@
+import { validPuzzleMesh } from '@/lib/puzzle-geometry'
 import { prepareCardPrint, cardPrintContext, directCardPrint } from '@/lib/event-print'
 import { eventDB, currentEventStore } from '@/lib/event-server'
 import { isEventAdmin, adminEvent, eventAssets, eventCards, eventFields, eventReply as reply, sameOrigin } from '@/lib/event-access'
@@ -24,6 +25,7 @@ export async function POST(request) {
   try {
     const payload=await request.json()
     if(JSON.stringify(payload).length>100000)return reply({error:'設定が大きすぎます。'},400)
+    if(payload.layout?.puzzle&&payload.layout.puzzle_mode==='auto'&&!validPuzzleMesh(payload.layout))return reply({error:'パズルの分割が不正です。分割を作り直してください。'},400)
     const db=eventDB()
     if(payload.action==='direct_print'){const event=await adminEvent(db,payload.event_id);if(!event)return reply({error:'イベントが見つかりません。'},404);return reply(await directCardPrint(db,payload.card_id,event.id))}
     if(payload.action==='prepare_card'){const event=await adminEvent(db,payload.event_id);if(!event)return reply({error:'イベントが見つかりません。'},404);const {card}=await cardPrintContext(db,payload.card_id,event.id);return reply({result:card,...await prepareCardPrint(db,card)})}

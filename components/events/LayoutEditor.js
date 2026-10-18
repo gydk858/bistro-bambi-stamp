@@ -42,7 +42,7 @@ export function StampBoard({layout,urls,selected=-1,editable=false,onSelect,onTr
   {slots.map((slot,i)=>{const pressed=marked.includes(slot.id),asset=layout.stamp_mode==='individual'?slot.asset_id:layout.stamp;if(!showAll&&!pressed)return null;return <TransformItem key={slot.id} position={slot} editable={editable} chosen={editable?(!selectedText&&i===selected):pressed} onSelect={()=>onSelect?.(i)} onChange={p=>onTransform?.(slot.id,p)} label={`${i+1} ${slot.label} ${pressed?'押印済み':'未押印'}`} style={{left:`${slot.x}%`,top:`${slot.y}%`,width:`${slot.size}%`,outline:showAll?'1px dashed #52785a':undefined}}>
    {urls[asset]&&<img src={urls[asset]} alt="" draggable={false} style={{opacity:pressed?1:.4}}/>}{showAll&&<span className={s.slotBadge}>{i+1}</span>}
   </TransformItem>})}
-  {[['number',cardNo?`No. ${cardNo}`:'','カード番号',14],['name',name,'お客様名',20]].map(([key,text,label,y])=>{if(!text)return null;const pos={x:76,y,size:2,angle:0,...layout[key]};return <TransformItem key={key} position={pos} textItem editable={editable} chosen={selectedText===key} onSelect={()=>onSelectText?.(key)} onChange={p=>onTextTransform?.(key,p)} label={`${label}の位置を移動`} style={{left:`${pos.x}%`,top:`${pos.y}%`,fontSize:`${pos.size}cqw`,maxWidth:`${100-pos.x}%`}}>{text}</TransformItem>})}
+  {[['number',cardNo?`No. ${cardNo}`:'','カード番号',14],['name',name,'お客様名',20]].map(([key,text,label,y])=>{if(!text||layout[key]?.visible===false)return null;const pos={x:76,y,size:2,angle:0,...layout[key]};return <TransformItem key={key} position={pos} textItem editable={editable} chosen={selectedText===key} onSelect={()=>onSelectText?.(key)} onChange={p=>onTextTransform?.(key,p)} label={`${label}の位置を移動`} style={{left:`${pos.x}%`,top:`${pos.y}%`,fontSize:`${pos.size}cqw`,maxWidth:`${100-pos.x}%`}}>{text}</TransformItem>})}
  </div>
 }
 export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDeleteAsset,onResetBackground,locked,eventType}) {
@@ -55,7 +55,7 @@ export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDele
  function removeSlot(){if(slots.length<=1||!window.confirm('選択中の枠を削除しますか？'))return;update({...value,slots:slots.filter((_,i)=>i!==index)});setIndex(Math.max(0,index-1));setCount(slots.length-1)}
  function reorder(delta){const next=index+delta;if(next<0||next>=slots.length)return;const reordered=[...slots];[reordered[index],reordered[next]]=[reordered[next],reordered[index]];update({...value,slots:reordered});setIndex(next)}
  return <section className={`${s.panel} ${s.spacer}`}><h2>台紙・スタンプ・配置</h2>{locked&&<p className={s.message}>カード発行済みのため、画像・種類・配置は固定されています。</p>}
-  <fieldset disabled={locked}><div className={s.dates}>
+  <fieldset disabled={locked}><div className={s.row}>{['number','name'].map(k=><label className={s.check} key={k}><input type="checkbox" checked={value[k]?.visible!==false} onChange={e=>update({...value,[k]:{...value[k],visible:e.target.checked}})}/>{k==='number'?'画像にカード番号を表示':'画像にお客様名を表示'}</label>)}</div><div className={s.dates}>
    <label>台紙（1枚）<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{upload('background',e.target.files[0]);e.target.value=''}}/></label>
    <label>スタンプ画像の方式<select value={value.stamp_mode||'common'} onChange={e=>update({...value,stamp_mode:e.target.value})}><option value="common">全枠共通</option><option value="individual">枠ごとに指定</option></select></label>
   </div><p className={s.small}>PNG・JPEG・WebP／各2MB以下。スタンプは透過PNGがおすすめです。</p>
