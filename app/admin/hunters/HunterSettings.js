@@ -1,0 +1,7 @@
+'use client'
+import {useState} from 'react'
+import s from './hunters.module.css'
+export default function HunterSettings({settings,ranks,busy,api,run,reload,onBackground}){
+ const [rank,setRank]=useState(''),[mission,setMission]=useState('')
+ return <details className={s.panel}><summary>ランク別ミッション・台紙設定</summary><fieldset disabled={busy}><h3>ランク別ミッション</h3><p className={s.muted}>同じランクには共通のミッションを表示します。変更後の印刷画像は各カードの「印刷画像を再準備」または次回保存で反映します。</p><div className={s.row}>{ranks.map(r=><button key={r.rank} onClick={()=>{setRank(r.rank);setMission(r.mission)}}>{r.rank}</button>)}</div><form onSubmit={e=>{e.preventDefault();run(async()=>{await api('',{action:'rank_save',rank:rank.trim(),mission,version:settings.version});await reload()})}}><div className={s.fields}><label>ランク名<input required maxLength={24} value={rank} onChange={e=>setRank(e.target.value)}/></label><label>このランクのミッション<textarea maxLength={160} value={mission} onChange={e=>setMission(e.target.value)}/></label></div><div className={s.row}><button className={s.primary}>ランク設定を保存</button></div></form><h3>プロフィール台紙</h3><p className={s.muted}>1600×1000推奨。文字・写真の位置は固定です。狩猟記録ページは読みやすさを保つ共通デザインです。</p><a href="/api/hunters?template=1" download="hunter-template.png">初期台紙PNGをダウンロード</a><div className={s.row}><label>台紙画像を差し替え<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)run(()=>onBackground(f))}}/></label><button onClick={()=>run(()=>onBackground(null))}>初期台紙に戻す</button></div></fieldset></details>
+}

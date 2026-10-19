@@ -8,11 +8,11 @@ export function proxy(request) {
     return NextResponse.redirect(new URL('/admin/login', request.url))
   }
   const response = NextResponse.next()
-  if (pathname.startsWith('/event-access/') || pathname.startsWith('/api/event-')) {
+  if (pathname.startsWith('/hunter-user/') || pathname.startsWith('/hunter-print/') || pathname.startsWith('/api/hunter-owner') || pathname.startsWith('/hunter-access/') || pathname.startsWith('/api/hunters') || pathname.startsWith('/event-access/') || pathname.startsWith('/api/event-')) {
     response.headers.set('Referrer-Policy', 'no-referrer')
     response.headers.set('Cache-Control', 'no-store')
     response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   }
   return response
 }
-export const config = { matcher: ['/admin/:path*','/api/:path*','/event-access/:path*'] }
+export const config = { matcher: ['/admin/:path*','/api/:path*','/event-access/:path*','/hunter-access/:path*','/hunter-user/:path*','/hunter-print/:path*'] }

@@ -2,6 +2,7 @@
 
 export default function AdminMenuClient() {
   const menuItems = [
+    {title:'ハンティングカード',icon:'🦌',description:'ハンター情報、狩猟頭数、写真・ミッション、印刷URLを管理します。',href:'/admin/hunters',buttonLabel:'ハンター一覧を開く'},
     {
       title: 'スタンプカード管理',
       icon: '🌿',
