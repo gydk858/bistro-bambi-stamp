@@ -15,8 +15,10 @@ export async function POST(request) {
   if(count)return reply({error:'カード発行後は画像を変更できません。'},400)
   const input=Buffer.from(await file.arrayBuffer()),pipeline=sharp(input,{limitInputPixels:40000000}),meta=await pipeline.metadata()
   if(!['png','jpeg','webp'].includes(meta.format)||meta.pages>1)return reply({error:'静止画のPNG・JPEG・WebPを選んでください。'},400)
-  const limit=kind==='stamp'?512:1600
-  const {data:png,info}=await pipeline.rotate().resize({width:limit,height:limit,fit:'inside',withoutEnlargement:true}).png().toBuffer({resolveWithObject:true})
+  // Backgrounds retain their native dimensions. Only stamp thumbnails shrink.
+  const oriented=pipeline.rotate()
+  if(kind==='stamp')oriented.resize({width:512,height:512,fit:'inside',withoutEnlargement:true})
+  const {data:png,info}=await oriented.png().toBuffer({resolveWithObject:true})
   if(png.length>5*1024*1024)return reply({error:'画像が大きすぎます。解像度を下げてください。'},400)
   const assetId=randomUUID(),storagePath=`${id}/${assetId}.png`
   const {error:upError}=await db.storage.from('bambi-event-assets').upload(storagePath,png,{contentType:'image/png',upsert:false})
