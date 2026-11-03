@@ -1,0 +1,7 @@
+{
+  "switch": "https://bistro-bambi-stamp.vercel.app/api/image-trigger/8083ecba4b0b7f8f05573922c77501fea53f08779310f5a80ae4808b9ffd0e02/switch.png",
+  "stamp": "https://bistro-bambi-stamp.vercel.app/api/image-trigger/8083ecba4b0b7f8f05573922c77501fea53f08779310f5a80ae4808b9ffd0e02/stamp.png",
+  "status": "https://bistro-bambi-stamp.vercel.app/api/image-trigger/8083ecba4b0b7f8f05573922c77501fea53f08779310f5a80ae4808b9ffd0e02/status.json",
+  "control": "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/bambi-image-trigger-test/8083ecba4b0b7f8f05573922c77501fea53f08779310f5a80ae4808b9ffd0e02/stamp-0.png",
+  "token": "8083ecba4b0b7f8f05573922c77501fea53f08779310f5a80ae4808b9ffd0e02"
+}
