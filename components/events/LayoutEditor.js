@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import EventPrintPreview from './EventPrintPreview'
 import TextColorField from './TextColorField'
-import { eventTextColor } from '@/lib/event-text-color'
+import { eventTextColor, eventTextWeight } from '@/lib/event-text-color'
 import s from '@/app/admin/events/events.module.css'
 export function useAssetUrls(assets, accessToken) {
  const [urls,setUrls]=useState({}),key=assets.map(a=>a.id).join(',')
@@ -44,10 +45,10 @@ export function StampBoard({layout,urls,selected=-1,editable=false,onSelect,onTr
   {slots.map((slot,i)=>{const pressed=marked.includes(slot.id),asset=layout.stamp_mode==='individual'?slot.asset_id:layout.stamp;if(!showAll&&!pressed)return null;return <TransformItem key={slot.id} position={slot} editable={editable} chosen={editable?(!selectedText&&i===selected):pressed} onSelect={()=>onSelect?.(i)} onChange={p=>onTransform?.(slot.id,p)} label={`${i+1} ${slot.label} ${pressed?'押印済み':'未押印'}`} style={{left:`${slot.x}%`,top:`${slot.y}%`,width:`${slot.size}%`,outline:showAll?'1px dashed #52785a':undefined}}>
    {urls[asset]&&<img src={urls[asset]} alt="" draggable={false} style={{opacity:pressed?1:.4}}/>}{showAll&&<span className={s.slotBadge}>{i+1}</span>}
   </TransformItem>})}
-  {[['number',cardNo?`No. ${cardNo}`:'','カード番号',14],['name',name,'お客様名',20]].map(([key,text,label,y])=>{if(!text||layout[key]?.visible===false)return null;const pos={x:76,y,size:2,angle:0,...layout[key]};return <TransformItem key={key} position={pos} textItem editable={editable} chosen={selectedText===key} onSelect={()=>onSelectText?.(key)} onChange={p=>onTextTransform?.(key,p)} label={`${label}の位置を移動`} style={{left:`${pos.x}%`,top:`${pos.y}%`,fontSize:`${pos.size}cqw`,color:eventTextColor(pos.color),maxWidth:`${100-pos.x}%`}}>{text}</TransformItem>})}
+  {[['number',cardNo?`No. ${cardNo}`:'','カード番号',14],['name',name,'お客様名',20]].map(([key,text,label,y])=>{if(!text||layout[key]?.visible===false)return null;const pos={x:76,y,size:2,angle:0,...layout[key]};return <TransformItem key={key} position={pos} textItem editable={editable} chosen={selectedText===key} onSelect={()=>onSelectText?.(key)} onChange={p=>onTextTransform?.(key,p)} label={`${label}の位置を移動`} style={{left:`${pos.x}%`,top:`${pos.y}%`,fontSize:`${pos.size}cqw`,color:eventTextColor(pos.color),fontWeight:eventTextWeight(pos.weight),maxWidth:`${100-pos.x}%`}}>{text}</TransformItem>})}
  </div>
 }
-export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDeleteAsset,onResetBackground,locked,eventType}) {
+export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDeleteAsset,onResetBackground,locked,eventType,eventId}) {
  const [index,setIndex]=useState(0),[textSelection,setTextSelection]=useState(null),[trial,setTrial]=useState(false),[marked,setMarked]=useState([]),[count,setCount]=useState(value.slots?.length||1),[cols,setCols]=useState(5)
  const slots=value.slots||[],selected=slots[index],stamps=assets.filter(a=>a.kind==='stamp')
  function update(next){onChange(next);setMarked([])}
@@ -82,6 +83,7 @@ export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDele
   <div className={`${s.row} ${s.spacer}`}><button type="button" className={trial?s.secondary:s.button} onClick={()=>setTrial(false)}>配置を編集</button><button type="button" className={trial?s.button:s.secondary} onClick={()=>setTrial(true)}>試し押し</button><span>{marked.length} / {slots.length}</span></div>
   {!trial&&<div className={`${s.row} ${s.spacer}`}><button type="button" className={s.secondary} disabled={locked} onClick={()=>setTextSelection('number')}>カード番号を選択</button><button type="button" className={s.secondary} disabled={locked} onClick={()=>setTextSelection('name')}>お客様名を選択</button><button type="button" className={s.secondary} disabled={locked} onClick={()=>setTextSelection(null)}>スタンプ枠を選択</button></div>}
   <fieldset disabled={locked} className={s.spacer}><div className={s.textColors}>{[['number','Noの文字色',14],['name','お客様名の文字色',20]].map(([key,label,y])=><TextColorField key={key} label={label} value={value[key]?.color} onChange={color=>update({...value,[key]:{x:76,y,size:2,...value[key],color}})}/>)}</div><p className={s.small}>色を変更したら「設定と配置を保存」を押してください。</p></fieldset>
+  <fieldset disabled={locked}><div className={s.row}>{[['number','Noの文字の太さ',14],['name','お客様名の文字の太さ',20]].map(([key,label,y])=><label key={key}>{label}<select value={eventTextWeight(value[key]?.weight)} onChange={e=>update({...value,[key]:{x:76,y,size:2,...value[key],weight:e.target.value}})}><option value="normal">通常</option><option value="bold">太字</option></select></label>)}</div></fieldset>
   <p className={s.small}>対象を選択し、↘ をドラッグして拡大・縮小、↻ をドラッグして回転します。対象そのものをドラッグすると移動できます。</p>
   <div className={s.spacer}><StampBoard layout={value} urls={urls} selected={trial?-1:index} selectedText={textSelection} onSelectText={setTextSelection} editable={!locked&&!trial} showAll={!trial||eventType==='specific'} marked={trial?marked:slots.map(x=>x.id)} cardNo="12345" name="見本のお名前" onSelect={i=>{if(!trial){setIndex(i);setTextSelection(null);}else if(eventType==='specific')setMarked(old=>old.includes(slots[i].id)?old.filter(x=>x!==slots[i].id):[...old,slots[i].id])}} onTextTransform={(key,p)=>update({...value,[key]:p})} onTransform={(id,p)=>update({...value,slots:slots.map(s=>s.id===id?p:s)})}/></div>
   {trial?<div className={`${s.row} ${s.spacer}`}>{eventType==='sequential'&&<button type="button" className={s.button} disabled={marked.length>=slots.length} onClick={()=>setMarked(old=>[...old,slots[old.length].id])}>次の枠に押す</button>}<button type="button" className={s.secondary} onClick={()=>setMarked([])}>試し押しをクリア</button><span className={s.small}>試し押しはカードに保存されません。</span></div>:
@@ -89,5 +91,6 @@ export default function LayoutEditor({value,onChange,assets,urls,onUpload,onDele
   {selected&&<><div className={`${s.dates} ${s.spacer}`}><label>枠名<input maxLength={40} value={selected.label} onChange={e=>field('label',e.target.value)}/></label>{value.stamp_mode==='individual'&&<label>この枠の画像<select value={selected.asset_id||''} onChange={e=>field('asset_id',e.target.value)}><option value="">選択してください</option>{stamps.map((a,i)=><option key={a.id} value={a.id}>スタンプ {i+1}</option>)}</select></label>}</div>
   <button type="button" className={s.secondary} onClick={()=>update({...value,slots:slots.map(x=>({...x,size:selected.size,angle:selected.angle}))})}>大きさ・角度を全枠に適用</button></>}
   </fieldset>}
+  <EventPrintPreview eventId={eventId} layout={value} eventType={eventType}/>
  </section>
 }
