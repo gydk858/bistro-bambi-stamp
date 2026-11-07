@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import {randomUUID} from 'node:crypto'
 import {eventDB} from '@/lib/event-server'
 import {eventReply as reply,sameOrigin} from '@/lib/event-access'
-import {hunterAuth,hunterCard,hunterAsset,hunterPublicURL,prepareHunterPrint,HUNTER_FIELDS,hunterRanks,hunterStats,withMission} from '@/lib/hunter-server'
+import {hunterAuth,hunterCard,hunterAsset,hunterPublicURL,prepareHunterPrint,hunterPrintPending,HUNTER_FIELDS,hunterRanks,hunterStats,withMission} from '@/lib/hunter-server'
 import {hunterTemplate,renderHunterPage} from '@/lib/hunter-image'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -14,10 +14,18 @@ export async function GET(request){
  try{auth=await hunterAuth(db,request.headers.get('x-hunter-token'))}catch(e){return reply({error:e.message},401)}
  try{
   const {store,settings,operator}=auth
-  if(q.has('template'))return pngResponse(await sharp(hunterTemplate()).png().toBuffer())
+  if(q.has('template'))return pngResponse(await sharp(hunterTemplate(settings.animals?.length||10)).png().toBuffer())
   if(q.has('asset'))return pngResponse(await hunterAsset(db,store)(q.get('asset')))
-  if(q.has('image')){const c=await hunterCard(db,store,q.get('image')),page=q.get('page')||'1';return pngResponse(await renderHunterPage(settings,withMission(c,await hunterRanks(db,store)),page==='1'?[]:await hunterStats(db,c.id),hunterAsset(db,store),page))}
-  if(q.has('id')){const card=await hunterCard(db,store,q.get('id'));const {data:history,error}=await db.from('bambi_hunter_history').select('id,action,before_data,after_data,actor,created_at').eq('hunter_id',card.id).order('created_at',{ascending:false}).limit(30);if(error)throw error;const rp=Math.max(0,Math.floor(Number(q.get('record_page'))||0));const {data:records,error:re,count:record_count}=await db.from('bambi_hunter_records').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29);if(re)throw re;return reply({card,history,records,record_count,stats:await hunterStats(db,card.id),ranks:await hunterRanks(db,store),print_url:hunterPublicURL(db,card)})}
+  if(q.has('image')){const c=await hunterCard(db,store,q.get('image')),page=q.get('page')||'1';return pngResponse(await renderHunterPage(settings,withMission(c,await hunterRanks(db,store)),await hunterStats(db,c.id),hunterAsset(db,store),page))}
+  if(q.has('id')){
+   const card=await hunterCard(db,store,q.get('id')),rp=Math.max(0,Math.floor(Number(q.get('record_page'))||0))
+   const [h,r,stats,ranks]=await Promise.all([
+    db.from('bambi_hunter_history').select('id,action,before_data,after_data,actor,created_at').eq('hunter_id',card.id).order('created_at',{ascending:false}).limit(30),
+    db.from('bambi_hunter_records').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29),
+    hunterStats(db,card.id),hunterRanks(db,store)
+   ]);if(h.error)throw h.error;if(r.error)throw r.error
+   return reply({card,history:h.data,records:r.data,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings)})
+  }
   const term=(q.get('search')||'').trim().replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0));if(term&&!/^\d{1,15}$/.test(term))throw Error('管理番号を数字で入力してください。')
   const page=Math.max(0,Math.min(100000,Math.floor(Number(q.get('page'))||0)));let query=db.from('bambi_hunters').select(HUNTER_FIELDS,{count:'exact'}).eq('store_id',store);if(term)query=query.eq('hunter_no',term)
   const {data:cards,error,count}=await query.order('hunter_no',{ascending:true}).range(page*50,page*50+49);if(error)throw error;return reply({cards,count,ranks:await hunterRanks(db,store),settings})
@@ -28,7 +36,7 @@ export async function POST(request){
  const db=eventDB();let auth;const token=request.headers.get('x-hunter-token')||null
  try{auth=await hunterAuth(db,token)}catch(e){return reply({error:e.message},401)}
  try{
-  const {store,operator}=auth
+  const {store,operator,settings}=auth
   if(request.headers.get('content-type')?.includes('multipart/form-data')){
    const fd=await request.formData(),file=fd.get('file'),kind=fd.get('kind')
    if(!['photo','background'].includes(kind)||(operator&&kind!=='photo'))return reply({error:'この画像は登録できません。'},403)
@@ -40,11 +48,12 @@ export async function POST(request){
   }
   const body=await request.json();if(JSON.stringify(body).length>10000)throw Error('入力が長すぎます。')
   if(body.action==='prepare'){const card=await hunterCard(db,store,body.id);return reply({card,print_url:hunterPublicURL(db,card),...await prepareHunterPrint(store,card.id)})}
+  if(body.action==='record_batch'){const {data,error}=await db.rpc('bambi_hunter_batch',{p_store:store,p_data:body});if(error)throw error;return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})}
   const old=['create','profile','background'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
   if(body.action==='profile') {const c=await hunterCard(db,store,body.id);const ranks=await hunterRanks(db,store);if(body.rank&&body.rank!==c.rank&&!ranks.some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。');body.mission=c.mission}
   if(body.action==='create'&&body.rank&&!(await hunterRanks(db,store)).some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。')
   const {data,error}=await db.rpc(next.includes(body.action)?'bambi_hunter_action_v214':'bambi_hunter_action',next.includes(body.action)?{p_store:store,p_action:body.action,p_data:body,p_owner:null}:{p_store:store,p_action:body.action,p_data:body,p_token:null});if(error)throw error
-  if(['create','profile','record_save','record_delete','legacy_count','owner_rotate','owner_access'].includes(body.action))return reply({card:clean(data),print_url:hunterPublicURL(db,data),...await prepareHunterPrint(store,data.id)})
+  if(['create','profile','record_save','record_delete','legacy_count','owner_rotate','owner_access'].includes(body.action))return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})
   return reply({settings:data})
  }catch(e){return reply({error:e.code==='23514'?'入力範囲を確認してください。頭数は0〜999999、サイズは正の数・最小≦最大です。1頭の場合は最小と最大を同じにしてください。文字数の上限も確認してください。':e.message||'保存に失敗しました。'},400)}
 }
