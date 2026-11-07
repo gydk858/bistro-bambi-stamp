@@ -6,7 +6,7 @@ import HunterRecords from './HunterRecords'
 const empty={tag:'',display_name:'',rank:'',bio:'',mission:'',photo_id:null}
 export default function HuntersClient({staffMode=false}){
  const [cards,setCards]=useState([]),[count,setCount]=useState(0),[page,setPage]=useState(0),[search,setSearch]=useState(''),[settings,setSettings]=useState(null),[ranks,setRanks]=useState([]),[detail,setDetail]=useState(null),[form,setForm]=useState(empty),[fresh,setFresh]=useState(empty),[dirty,setDirty]=useState(false),[recordDirty,setRecordDirty]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState(''),[photoStatus,setPhotoStatus]=useState(''),[image,setImage]=useState(''),[imageVersion,setImageVersion]=useState(null),[previewBusy,setPreviewBusy]=useState(false),[origin,setOrigin]=useState('');const lock=useRef(false),issueKey=useRef(null),previewRequest=useRef(0),selectedId=useRef(null),imageRef=useRef(null)
- const card=detail?.card,pending=card&&(card.printed_version!==card.version||card.printed_settings_version!==settings?.version||card.printed_layout!=='v222')
+ const card=detail?.card,pending=card&&(detail.print_pending||card.printed_settings_version!==settings?.version)
  async function api(query='',data){const r=await fetch('/api/hunters'+query,{method:data?'POST':'GET',headers:data&&!(data instanceof FormData)?{'Content-Type':'application/json'}:{},body:data?(data instanceof FormData?data:JSON.stringify(data)):undefined,cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error||'通信に失敗しました。');return d}
  async function run(fn){if(lock.current)return;lock.current=true;setBusy(true);setError('');setMessage('');try{await fn()}catch(e){setError(e.message)}finally{lock.current=false;setBusy(false)}}
  async function list(p=page,q=search){const d=await api(`?page=${p}&search=${encodeURIComponent(q)}`);setCards(d.cards);setCount(d.count);setSettings(d.settings);setRanks(d.ranks);setPage(p)}
@@ -17,11 +17,24 @@ export default function HuntersClient({staffMode=false}){
  const discard=()=>!(dirty||recordDirty)||confirm('未保存の入力を破棄しますか？')
  async function changed(data){const d=await api('',{id:card.id,version:card.version,operation_id:crypto.randomUUID(),...data});setMessage('保存しました。GTA用画像は「印刷画像へ反映」で更新してください。');await select(d.card.id);setCards(cs=>cs.map(c=>c.id===d.card.id?d.card:c))}
  async function publish(){const d=await api('',{action:'prepare',id:card.id});if(!d.print_ready)throw Error(d.print_error||'画像更新に失敗しました。');await select(card.id);setMessage('印刷画像を更新しました。GTAへの反映には約60秒かかる場合があります。');void preview(d.card)}
+ async function publishAll(){
+  const targets=[];let p=0,total=Infinity
+  while(targets.length<total){const d=await api(`?page=${p++}`);total=d.count;targets.push(...d.cards);if(!d.cards.length)break}
+  const failed=[]
+  for(const [i,c]of targets.entries()){
+   setMessage(`全カード画像を更新中 ${i+1}/${targets.length}：#${c.hunter_no}。この画面を閉じずにお待ちください。`)
+   try{const d=await api('',{action:'prepare',id:c.id});if(!d.print_ready)throw Error(d.print_error)}catch(e){failed.push(`#${c.hunter_no} ${e.message}`)}
+  }
+  if(card)await select(card.id)
+  setMessage(`${targets.length-failed.length}/${targets.length}件の画像を更新しました。処理中に別の方が記録を変更した場合は、もう一度全カードを更新してください。`)
+  if(failed.length)setError('更新できなかったカード：'+failed.join(' ／ '))
+ }
  async function upload(kind,file){const fd=new FormData();fd.set('kind',kind);fd.set('file',file);return (await api('',fd)).asset.id}
  const field=(k,max)=>({value:form[k]||'',maxLength:max,onChange:e=>{setForm({...form,[k]:e.target.value});setDirty(true)}})
  return <main className={s.page}><div className={s.wrap}><header className={s.header}><div><div className={s.eyebrow}>BISTRO BAMBI / FIELD JOURNAL</div><h1>{staffMode?'ハンティング受付':'ハンティング管理'}</h1></div><nav className={s.row}><a href={staffMode?'/admin/hunters':'/admin/hunters/staff'}>{staffMode?'管理・設定':'スタッフ操作画面'}</a><a href="/admin">管理メニュー</a></nav></header>
  {error&&<div className={`${s.notice} ${s.error}`} role="alert">{error}</div>}{message&&<div className={s.notice} role="status">{message}</div>}
  {!staffMode&&settings&&<HunterSettings key={settings.version} settings={settings} ranks={ranks} busy={busy} api={api} run={run} reload={async()=>{await list();setImageVersion(null);setMessage('設定を保存しました。各カードで印刷画像へ反映してください。')}} onBackground={async file=>{await api('',{action:'background',background_id:file?await upload('background',file):'',version:settings.version});await list();setImageVersion(null);setMessage('台紙を保存しました。印刷画像へ反映してください。')}}/>}
+ <div className={s.notice}><b>金冠：動物ごとの全参加者最高サイズ（同率は全員）</b><p>記録を訂正・追加した後は、以前の保持者の金冠も変わる場合があります。最後に全カードの画像を更新してください。公開済み画像の金冠は、画像へ反映した時点の記録です。</p><button disabled={busy||dirty||recordDirty} onClick={()=>run(publishAll)}>金冠を含め全カード画像を更新</button></div>
  <div className={s.workspace}><aside className={s.panel}><h2>ハンター一覧 <small>{count}件</small></h2><form onSubmit={e=>{e.preventDefault();run(()=>list(0,search))}}><label>管理番号<input inputMode="numeric" value={search} onChange={e=>setSearch(e.target.value)} placeholder="番号を入力"/></label><div className={s.row}><button disabled={busy}>検索</button><button type="button" disabled={busy} onClick={()=>{setSearch('');run(()=>list(0,''))}}>全件</button></div></form><div className={s.list}>{cards.map(c=><div className={s.item} key={c.id}><div><b>#{c.hunter_no} {c.display_name||'匿名'}</b><small>HR {c.rank||'—'} ／ {c.kills}頭</small></div><button disabled={busy} onClick={()=>{if(discard())run(()=>select(c.id,0,true))}}>表示</button></div>)}</div><div className={s.row}><button disabled={busy||page===0} onClick={()=>run(()=>list(page-1))}>前</button><span>{page+1}/{Math.max(1,Math.ceil(count/50))}</span><button disabled={busy||(page+1)*50>=count} onClick={()=>run(()=>list(page+1))}>次</button></div>
  <details><summary>＋ 新規発行</summary><form onSubmit={e=>{e.preventDefault();if(!discard())return;run(async()=>{issueKey.current??=crypto.randomUUID();const d=await api('',{action:'create',...fresh,operation_id:issueKey.current});issueKey.current=null;setFresh(empty);await select(d.card.id,0,true);await list(0,'');setSearch('');setMessage('カードを発行しました。「印刷画像へ反映」を押してからURLをお渡しください。')})}}><fieldset disabled={busy}><label>名前（任意）<input maxLength={40} value={fresh.display_name} onChange={e=>setFresh({...fresh,display_name:e.target.value})}/></label><div className={s.row}><button>新規発行</button></div></fieldset></form></details></aside>
  {card?<><section className={s.panel}><div className={s.detailhead}><h2>#{card.hunter_no} {card.display_name||'匿名'} <small>HR {card.rank||'—'}</small></h2><button disabled={busy} onClick={()=>{if(discard())run(()=>select(card.id))}}>再読込</button></div>

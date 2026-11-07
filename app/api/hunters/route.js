@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import {randomUUID} from 'node:crypto'
 import {eventDB} from '@/lib/event-server'
 import {eventReply as reply,sameOrigin} from '@/lib/event-access'
-import {hunterAuth,hunterCard,hunterAsset,hunterPublicURL,prepareHunterPrint,hunterPrintPending,HUNTER_FIELDS,hunterRanks,hunterStats,withMission} from '@/lib/hunter-server'
+import {hunterAuth,hunterCard,hunterAsset,hunterPublicURL,prepareHunterPrint,hunterPrintPending,hunterCrowns,HUNTER_FIELDS,hunterRanks,hunterStats,withMission} from '@/lib/hunter-server'
 import {hunterTemplate,renderHunterPage} from '@/lib/hunter-image'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -16,15 +16,15 @@ export async function GET(request){
   const {store,settings,operator}=auth
   if(q.has('template'))return pngResponse(await sharp(hunterTemplate(settings.animals?.length||10)).png().toBuffer())
   if(q.has('asset'))return pngResponse(await hunterAsset(db,store)(q.get('asset')))
-  if(q.has('image')){const c=await hunterCard(db,store,q.get('image')),page=q.get('page')||'1';return pngResponse(await renderHunterPage(settings,withMission(c,await hunterRanks(db,store)),await hunterStats(db,c.id),hunterAsset(db,store),page))}
+  if(q.has('image')){const c=await hunterCard(db,store,q.get('image'));return pngResponse(await renderHunterPage(settings,withMission(c,await hunterRanks(db,store)),await hunterStats(db,c.id),hunterAsset(db,store),await hunterCrowns(db,store)))}
   if(q.has('id')){
    const card=await hunterCard(db,store,q.get('id')),rp=Math.max(0,Math.floor(Number(q.get('record_page'))||0))
-   const [h,r,stats,ranks]=await Promise.all([
+   const [h,r,stats,ranks,crowns]=await Promise.all([
     db.from('bambi_hunter_history').select('id,action,before_data,after_data,actor,created_at').eq('hunter_id',card.id).order('created_at',{ascending:false}).limit(30),
     db.from('bambi_hunter_records').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29),
-    hunterStats(db,card.id),hunterRanks(db,store)
+    hunterStats(db,card.id),hunterRanks(db,store),hunterCrowns(db,store)
    ]);if(h.error)throw h.error;if(r.error)throw r.error
-   return reply({card,history:h.data,records:r.data,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings)})
+   return reply({card,history:h.data,records:r.data,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings,crowns)})
   }
   const term=(q.get('search')||'').trim().replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0));if(term&&!/^\d{1,15}$/.test(term))throw Error('管理番号を数字で入力してください。')
   const page=Math.max(0,Math.min(100000,Math.floor(Number(q.get('page'))||0)));let query=db.from('bambi_hunters').select(HUNTER_FIELDS,{count:'exact'}).eq('store_id',store);if(term)query=query.eq('hunter_no',term)
