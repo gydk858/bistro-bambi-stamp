@@ -13,7 +13,9 @@ export async function GET(request){
  const db=eventDB(),q=new URL(request.url).searchParams;let auth
  try{auth=await hunterAuth(db,request.headers.get('x-hunter-token'))}catch(e){return reply({error:e.message},401)}
  try{
-  const {store,settings,operator}=auth
+  const {store,operator}=auth
+  const settings=operator?{animals:auth.settings.animals,version:auth.settings.version,background_id:auth.settings.background_id}:auth.settings
+  if(operator&&(q.has('template')||q.has('asset')))return reply({error:'管理者のみ操作できます。'},403)
   if(q.has('template'))return pngResponse(await sharp(hunterTemplate(settings.animals?.length||10)).png().toBuffer())
   if(q.has('asset'))return pngResponse(await hunterAsset(db,store)(q.get('asset')))
   if(q.has('image')){const c=await hunterCard(db,store,q.get('image'));return pngResponse(await renderHunterPage(settings,withMission(c,await hunterRanks(db,store)),await hunterStats(db,c.id),hunterAsset(db,store),await hunterCrowns(db,store)))}
@@ -33,7 +35,7 @@ export async function GET(request){
 }
 export async function POST(request){
  if(!sameOrigin(request))return reply({error:'操作元を確認できません。'},403)
- const db=eventDB();let auth;const token=request.headers.get('x-hunter-token')||null
+ const db=eventDB();let auth;const token=request.headers.get('x-hunter-token')
  try{auth=await hunterAuth(db,token)}catch(e){return reply({error:e.message},401)}
  try{
   const {store,operator,settings}=auth
@@ -47,9 +49,10 @@ export async function POST(request){
    const {error:e}=await db.from('bambi_hunter_assets').insert({id,store_id:store,kind,storage_path});if(e){await db.storage.from('bambi-hunter-assets').remove([storage_path]);throw e}return reply({asset:{id,kind}})
   }
   const body=await request.json();if(JSON.stringify(body).length>10000)throw Error('入力が長すぎます。')
+  if(operator&&!['create','profile','record_batch','record_save','record_delete','legacy_count','owner_rotate','owner_access','prepare'].includes(body.action))return reply({error:'管理者のみ操作できます。'},403)
   if(body.action==='prepare'){const card=await hunterCard(db,store,body.id);return reply({card,print_url:hunterPublicURL(db,card),...await prepareHunterPrint(store,card.id)})}
   if(body.action==='record_batch'){const {data,error}=await db.rpc('bambi_hunter_batch',{p_store:store,p_data:body});if(error)throw error;return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})}
-  const old=['create','profile','background'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
+  const old=['create','profile','background','rotate_access','access'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
   if(body.action==='profile') {const c=await hunterCard(db,store,body.id);const ranks=await hunterRanks(db,store);if(body.rank&&body.rank!==c.rank&&!ranks.some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。');body.mission=c.mission}
   if(body.action==='create'&&body.rank&&!(await hunterRanks(db,store)).some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。')
   const {data,error}=await db.rpc(next.includes(body.action)?'bambi_hunter_action_v214':'bambi_hunter_action',next.includes(body.action)?{p_store:store,p_action:body.action,p_data:body,p_owner:null}:{p_store:store,p_action:body.action,p_data:body,p_token:null});if(error)throw error

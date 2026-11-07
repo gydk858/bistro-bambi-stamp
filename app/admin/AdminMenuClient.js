@@ -2,7 +2,6 @@
 
 export default function AdminMenuClient() {
   const menuItems = [
-    {title:'ハンティング受付',icon:'📝',description:'スタッフ用。狩猟記録をまとめて入力し、印刷画像へ反映します。',href:'/admin/hunters/staff',buttonLabel:'スタッフ操作画面を開く'},
     {title:'ハンティングカード',icon:'🦌',description:'ハンター情報、狩猟頭数、写真・ミッション、印刷URLを管理します。',href:'/admin/hunters',buttonLabel:'ハンター一覧を開く'},
     {
       title: 'スタンプカード管理',
