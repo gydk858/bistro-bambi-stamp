@@ -9,10 +9,6 @@
 
 .purchase {min-width:0}
 /* v2.29: three quality columns; no wide purchase matrix */
-.purchaseAnimals{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
-.purchaseAnimal{min-width:0;border:1px solid #d8ddca;border-radius:8px;padding:10px;background:#fafbf5}
-.purchaseAnimal summary{overflow-wrap:anywhere}
-.purchaseAnimal summary span{float:right;font-size:12px;font-weight:normal;margin-left:8px}
 .compactPurchase{width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 14px;font-size:13px}
 .compactPurchase th,.compactPurchase td{padding:6px 4px;text-align:center;border-bottom:1px solid #d8ddca;overflow-wrap:anywhere}
 .compactPurchase th:first-child{width:24%}
