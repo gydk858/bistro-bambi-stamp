@@ -1,0 +1,17 @@
+'use client'
+import {useState,useEffect} from 'react'
+import {MATERIALS,purchaseSummary} from '@/lib/hunter-purchase'
+import s from './hunters.module.css'
+const fmt=n=>Number(n).toLocaleString('ja-JP'),date=v=>new Date(v).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})
+export default function PurchaseLedger({api,busy,revision,onSelect}){
+ const [open,setOpen]=useState(false),[page,setPage]=useState(0),[rows,setRows]=useState([]),[count,setCount]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState(''),[reload,setReload]=useState(0)
+ useEffect(()=>{if(!open)return;let active=true;setLoading(true);setError('');api(`?purchases=1&purchase_page=${page}`).then(d=>{if(active){setRows(d.purchases);setCount(d.count)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[open,page,revision,reload])
+ const mapped=rows.map(r=>({r,total:purchaseSummary(r.lines,r.unit_prices,r.coin_rate)}))
+ function csv(){
+  const header=['受付ID','日時（日本時間）','番号','名前','担当者','状態',...MATERIALS.map(m=>m.label),'買取金額','カジノコイン','メモ'];
+  const values=mapped.map(({r,total})=>[r.id,date(r.created_at),r.hunter_no,r.customer_name,r.actor,r.status==='cancelled'?'取消':'確定',...MATERIALS.map(m=>total.materials[m.key]||0),r.amount,r.coins,r.note]);
+  const escape=v=>'"'+String(v??'').replace(/^[=+@\-\t\r]/,"'$&").replaceAll('"','""')+'"';
+  const url=URL.createObjectURL(new Blob(['\ufeff'+[header,...values].map(row=>row.map(escape).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`bambi-purchases-page-${page+1}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+ }
+ return <details className={s.panel} onToggle={e=>setOpen(e.currentTarget.open)}><summary>全員の買取表・履歴（素材別集計）</summary>{open&&<><p className={s.muted}>各受付を素材別に集計しています。取消分は集計対象外です。「表示」から対象ハンターの買取履歴で訂正できます。</p>{error&&<p role="alert">{error}</p>}<div className={s.row}><button disabled={busy||loading} onClick={()=>setReload(x=>x+1)}>再取得</button><button disabled={loading||!rows.length} onClick={csv}>このページをCSV保存</button></div>{loading?<p>読み込み中…</p>:<div className={s.tableScroll}><table className={s.table}><thead><tr><th>日時・お客様</th><th>担当</th>{MATERIALS.map(m=><th key={m.key}>{m.label}</th>)}<th>金額</th><th>コイン</th><th>状態</th></tr></thead><tbody>{mapped.map(({r,total})=><tr key={r.id}><th>{date(r.created_at)}<br/>#{r.hunter_no} {r.customer_name||'匿名'}<br/><button disabled={busy} onClick={()=>onSelect(r.hunter_id)}>表示</button></th><td>{r.actor}</td>{MATERIALS.map(m=><td key={m.key}>{total.materials[m.key]||0}</td>)}<td>¥{fmt(r.amount)}</td><td>{fmt(r.coins)}</td><td>{r.status==='cancelled'?'取消済み':'確定'}</td></tr>)}</tbody><tfoot><tr><th colSpan={2}>このページの確定分合計</th>{MATERIALS.map(m=><td key={m.key}>{fmt(mapped.filter(x=>x.r.status==='confirmed').reduce((n,x)=>n+(x.total.materials[m.key]||0),0))}</td>)}<td>¥{fmt(rows.filter(r=>r.status==='confirmed').reduce((n,r)=>n+Number(r.amount),0))}</td><td>{fmt(rows.filter(r=>r.status==='confirmed').reduce((n,r)=>n+Number(r.coins),0))}</td><td/></tr></tfoot></table></div>}<div className={s.row}><button disabled={loading||page===0} onClick={()=>setPage(p=>p-1)}>前へ</button><span>{page+1} / {Math.max(1,Math.ceil(count/20))}（全{count}件）</span><button disabled={loading||(page+1)*20>=count} onClick={()=>setPage(p=>p+1)}>次へ</button></div></>}</details>
+}
