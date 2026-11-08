@@ -1,0 +1,78 @@
+{
+  "bucket": "bambi-animation-test",
+  "run": "9c714700-d813-4a7a-99eb-c5e9a39344d7",
+  "results": [
+    {
+      "name": "still.png",
+      "url": "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/bambi-animation-test/9c714700-d813-4a7a-99eb-c5e9a39344d7/still.png",
+      "checks": [
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        },
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        }
+      ]
+    },
+    {
+      "name": "test.gif",
+      "url": "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/bambi-animation-test/9c714700-d813-4a7a-99eb-c5e9a39344d7/test.gif",
+      "checks": [
+        {
+          "status": 200,
+          "contentType": "image/gif",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        },
+        {
+          "status": 200,
+          "contentType": "image/gif",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        }
+      ]
+    },
+    {
+      "name": "test.png",
+      "url": "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/bambi-animation-test/9c714700-d813-4a7a-99eb-c5e9a39344d7/test.png",
+      "checks": [
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        },
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        }
+      ]
+    },
+    {
+      "name": "test.apng",
+      "url": "https://arahjxdrmqqvzzmyxuot.supabase.co/storage/v1/object/public/bambi-animation-test/9c714700-d813-4a7a-99eb-c5e9a39344d7/test.apng",
+      "checks": [
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        },
+        {
+          "status": 200,
+          "contentType": "image/png",
+          "cacheControl": "public, max-age=0",
+          "matches": true
+        }
+      ]
+    }
+  ]
+}

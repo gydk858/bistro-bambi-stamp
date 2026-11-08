@@ -33,7 +33,7 @@ export async function GET(request){
    const card=await hunterCard(db,store,q.get('id')),rp=Math.max(0,Math.floor(Number(q.get('record_page'))||0))
    const [h,r,stats,ranks,crowns]=await Promise.all([
     db.from('bambi_hunter_history').select('id,action,before_data,after_data,actor,created_at').eq('hunter_id',card.id).order('created_at',{ascending:false}).limit(30),
-    db.from('bambi_hunter_records').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29),
+    db.from('bambi_hunter_sizes').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29),
     hunterStats(db,card.id),hunterRanks(db,store),hunterCrowns(db,store)
    ]);if(h.error)throw h.error;if(r.error)throw r.error
    return reply({card,history:h.data,records:r.data,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings,crowns)})
@@ -59,24 +59,23 @@ export async function POST(request){
    const {error:e}=await db.from('bambi_hunter_assets').insert({id,store_id:store,kind,storage_path});if(e){await db.storage.from('bambi-hunter-assets').remove([storage_path]);throw e}return reply({asset:{id,kind}})
   }
   const body=await request.json();if(JSON.stringify(body).length>(['purchase_save','purchase_cancel'].includes(body.action)?60000:10000))throw Error('入力が長すぎます。')
-  if(operator&&!['purchase_save','purchase_cancel','create','profile','record_batch','record_save','record_delete','legacy_count','owner_rotate','owner_access','prepare'].includes(body.action))return reply({error:'管理者のみ操作できます。'},403)
+  if(['record_batch','record_save','record_delete','legacy_count'].includes(body.action))throw Error('頭数の手動入力は終了しました。買取履歴から登録・訂正してください。')
+  if(operator&&!['purchase_save','purchase_cancel','create','profile','size_save','size_delete','owner_rotate','owner_access','prepare'].includes(body.action))return reply({error:'管理者のみ操作できます。'},403)
   if(body.action==='prepare'){const card=await hunterCard(db,store,body.id);return reply({card,print_url:hunterPublicURL(db,card),...await prepareHunterPrint(store,card.id)})}
   if(['purchase_save','purchase_cancel'].includes(body.action)){
    body.actor=await hunterEmployeeActor(db,store,body.actor_user_id)
    const {data,error}=await db.rpc('bambi_hunter_purchase',{p_store:store,p_data:body});if(error)throw error
    return reply({card:clean(data.card),purchase:data.purchase,print_url:hunterPublicURL(db,data.card),print_pending:true})
   }
-  if(['record_save','record_delete'].includes(body.action)&&body.record_id){
-   const card=await hunterCard(db,store,body.id)
-   const {data,error}=await db.from('bambi_hunter_records').select('purchase_id').eq('id',body.record_id).eq('hunter_id',card.id).maybeSingle();if(error)throw error
-   if(data?.purchase_id)throw Error('買取から反映された記録は、買取履歴から訂正・取消してください。')
+  if(['size_save','size_delete'].includes(body.action)){
+   const {data,error}=await db.rpc('bambi_hunter_size_action',{p_store:store,p_data:body});if(error)throw error
+   return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})
   }
-  if(body.action==='record_batch'){const {data,error}=await db.rpc('bambi_hunter_batch',{p_store:store,p_data:body});if(error)throw error;return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})}
   const old=['create','profile','background','rotate_access','access'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
   if(body.action==='profile') {const c=await hunterCard(db,store,body.id);const ranks=await hunterRanks(db,store);if(body.rank&&body.rank!==c.rank&&!ranks.some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。');body.mission=c.mission}
   if(body.action==='create'&&body.rank&&!(await hunterRanks(db,store)).some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。')
   const {data,error}=await db.rpc(next.includes(body.action)?'bambi_hunter_action_v214':'bambi_hunter_action',next.includes(body.action)?{p_store:store,p_action:body.action,p_data:body,p_owner:null}:{p_store:store,p_action:body.action,p_data:body,p_token:null});if(error)throw error
   if(['create','profile','record_save','record_delete','legacy_count','owner_rotate','owner_access'].includes(body.action))return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})
   return reply({settings:data})
- }catch(e){return reply({error:e.code==='23514'?'入力範囲を確認してください。頭数は0〜999999、サイズは正の数・最小≦最大です。1頭の場合は最小と最大を同じにしてください。文字数の上限も確認してください。':e.message||'保存に失敗しました。'},400)}
+ }catch(e){return reply({error:e.code==='23514'?'入力範囲を確認してください。頭数は0〜999999、サイズは正の数・最小≦最大です。文字数の上限も確認してください。':e.message||'保存に失敗しました。'},400)}
 }
