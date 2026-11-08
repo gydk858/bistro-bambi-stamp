@@ -7,8 +7,8 @@ const sizes=[{label:'大',keys:['fine_large','large','poor_large']},{label:'中'
 const skin=MATERIALS.filter(m=>m.key!=='meat'),money=n=>Number(n).toLocaleString('ja-JP')
 export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSave}){
  const [rows,setRows]=useState({}),[meat,setMeat]=useState(''),[actor,setActor]=useState(''),[note,setNote]=useState(''),[editing,setEditing]=useState(null),[receipts,setReceipts]=useState([]),[count,setCount]=useState(0),[page,setPage]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState(''),[prices,setPrices]=useState(DEFAULT_PRICES),[rate,setRate]=useState(COIN_RATE),[retry,setRetry]=useState(0)
- const [employees,setEmployees]=useState([]),[employeeLoading,setEmployeeLoading]=useState(true),[employeeError,setEmployeeError]=useState(''),[employeeRetry,setEmployeeRetry]=useState(0)
- const operation=useRef(null)
+ const [employees,setEmployees]=useState([]),[employeeLoading,setEmployeeLoading]=useState(true),[employeeError,setEmployeeError]=useState('')
+ const operation=useRef(null),refreshEmployees=useRef(()=>{})
  const options=[...new Set([...animals,...(editing?.lines||[]).map(l=>l.animal).filter(Boolean)])]
  const [expanded,setExpanded]=useState({})
  const furAnimals=options.filter(a=>!birdAnimals.includes(a)),birds=options.filter(a=>birdAnimals.includes(a))
@@ -18,7 +18,24 @@ export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSa
  const usedPrices=editing?.unit_prices||prices,usedRate=editing?.coin_rate||rate,summary=purchaseSummary(lines,usedPrices,usedRate)
  const hasInput=!!editing||meat!==''||note!==''||Object.values(rows).some(r=>Object.values(r).some(v=>v!==''))
  useEffect(()=>{onDirty(hasInput);return()=>onDirty(false)},[hasInput,onDirty])
- useEffect(()=>{let active=true;setEmployeeLoading(true);setEmployeeError('');api('?employees=1').then(d=>{if(!active)return;setEmployees(d.employees);let remembered='';try{remembered=localStorage.getItem('bambi-hunter-purchase-employee-id')||''}catch{}setActor(prev=>d.employees.some(e=>e.id===prev)?prev:d.employees.some(e=>e.id===remembered)?remembered:'')}).catch(e=>{if(active){setEmployees([]);setActor('');setEmployeeError(e.message)}}).finally(()=>{if(active)setEmployeeLoading(false)});return()=>{active=false}},[employeeRetry])
+ useEffect(()=>{
+  let active=true,inFlight=false,first=true
+  async function refresh(){
+   if(!active||inFlight||document.visibilityState==='hidden')return
+   inFlight=true
+   try{
+    const d=await api('?employees=1');if(!active)return
+    setEmployees(d.employees);setEmployeeError('')
+    const restoreFirst=first;let remembered='';if(restoreFirst)try{remembered=localStorage.getItem('bambi-hunter-purchase-employee-id')||''}catch{}
+    setActor(prev=>d.employees.some(e=>e.id===prev)?prev:restoreFirst&&d.employees.some(e=>e.id===remembered)?remembered:'')
+   }catch(e){if(active)setEmployeeError('従業員一覧を取得できませんでした。自動で再試行します。')}
+   finally{inFlight=false;if(active){setEmployeeLoading(false);first=false}}
+  }
+  refreshEmployees.current=refresh;void refresh()
+  const timer=setInterval(refresh,30000)
+  window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh)
+  return()=>{active=false;clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);refreshEmployees.current=()=>{}}
+ },[])
  useEffect(()=>{let active=true;setLoading(true);setError('');api(`?purchases=1&hunter_id=${card.id}&purchase_page=${page}`).then(d=>{if(active){setReceipts(d.purchases);setCount(d.count);setPrices(d.prices);setRate(d.coin_rate)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[card.id,page,retry])
  function change(animal,key,value){operation.current=null;setRows(r=>({...r,[animal]:{...r[animal],[key]:value}}))}
  function reset(){operation.current=null;setEditing(null);setExpanded({});setRows({});setMeat('');setNote('');setError('')}
@@ -36,7 +53,7 @@ export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSa
  <p className={s.muted}>動物別に素材の個数を入力。皮・鳥素材1個＝1頭、肉は買取のみです。皮は動物名を押すと入力欄が開きます。鳥は下の専用表に入力してください。</p>
  {error&&<p role="alert" className={s.error}>{error} <button type="button" disabled={busy||loading} onClick={()=>setRetry(x=>x+1)}>履歴を再取得</button></p>}
  <form onSubmit={e=>{e.preventDefault();send('purchase_save')}}><fieldset disabled={busy||dirty||loading}>
- <div className={s.fields}><label>受付担当者名<select aria-label="受付担当者名" required value={actor} disabled={employeeLoading||!!employeeError||!employees.length} onChange={e=>{operation.current=null;setActor(e.target.value)}}><option value="">{employeeLoading?'従業員を取得中…':'担当者を選択してください'}</option>{employees.map(e=><option key={e.id} value={e.id}>{e.name}{e.staff_code?'（'+e.staff_code+'）':''}</option>)}</select>{employeeError&&<span role="alert">{employeeError}</span>}{!employeeLoading&&!employeeError&&!employees.length&&<span>在籍中の従業員がいません。従業員一覧を確認してください。</span>}<button type="button" disabled={busy||employeeLoading} onClick={()=>setEmployeeRetry(n=>n+1)}>従業員一覧を再取得</button></label><label>肉の合計個数（討伐数には含めない）<input aria-label="肉の合計個数" type="number" min="0" max="999999" step="1" value={meat} placeholder="0" onChange={e=>{operation.current=null;setMeat(e.target.value)}}/></label></div>
+ <div className={s.fields}><label>受付担当者名<select aria-label="受付担当者名" onFocus={()=>refreshEmployees.current()} onPointerDown={()=>refreshEmployees.current()} required value={actor} disabled={employeeLoading||!!employeeError||!employees.length} onChange={e=>{operation.current=null;setActor(e.target.value)}}><option value="">{employeeLoading?'従業員を取得中…':'担当者を選択してください'}</option>{employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>{employeeError&&<span role="alert">{employeeError}</span>}{!employeeLoading&&!employeeError&&!employees.length&&<span>在籍中の従業員がいません。従業員一覧を確認してください。</span>}</label><label>肉の合計個数（討伐数には含めない）<input aria-label="肉の合計個数" type="number" min="0" max="999999" step="1" value={meat} placeholder="0" onChange={e=>{operation.current=null;setMeat(e.target.value)}}/></label></div>
  <h4>皮の買取</h4><div className={s.purchaseAnimals}>{furAnimals.map(a=><details key={a} className={s.purchaseAnimal} open={!!expanded[a]} onToggle={e=>{const open=e.currentTarget.open;setExpanded(prev=>prev[a]===open?prev:{...prev,[a]:open})}}><summary>{a}<span>今回 {summary.animals[a]||0} 頭</span></summary><table className={s.compactPurchase}><caption className={s.muted}>{a}の皮（個数を入力）</caption><thead><tr><th scope="col">サイズ</th>{['上質','通常','悪質'].map(q=><th scope="col" key={q}>{q}</th>)}</tr></thead><tbody>{sizes.map(size=><tr key={size.label}><th scope="row">{size.label}</th>{size.keys.map(k=>{const m=MATERIALS.find(m=>m.key===k);return <td key={k}><small>¥{money(usedPrices[k])}</small><input aria-label={`${a} ${m.label}`} type="number" inputMode="numeric" min="0" max="999999" step="1" placeholder="—" value={rows[a]?.[k]??''} onChange={e=>change(a,k,e.target.value)}/></td>})}</tr>)}</tbody></table></details>)}</div>
  <h4>鳥の買取</h4>{birds.length?<table className={s.compactPurchase}><thead><tr><th scope="col">動物</th>{birdKeys.map(k=><th scope="col" key={k}>{MATERIALS.find(m=>m.key===k).label}<small>¥{money(usedPrices[k])}</small></th>)}</tr></thead><tbody>{birds.map(a=><tr key={a}><th scope="row">{a}<small>今回 {summary.animals[a]||0} 頭</small></th>{birdKeys.map(k=><td key={k}><input aria-label={`${a} ${MATERIALS.find(m=>m.key===k).label}`} type="number" inputMode="numeric" min="0" max="999999" step="1" placeholder="—" value={rows[a]?.[k]??''} onChange={e=>change(a,k,e.target.value)}/></td>)}</tr>)}</tbody></table>:<p className={s.muted}>鳥の対象動物は登録されていません。</p>}
  {legacy.length>0&&<div className={s.notice}><b>旧形式の登録明細</b><p>現在の皮・鳥の分類と異なる過去の入力です。訂正時に消えないよう別欄で表示します。不要な数量は0にしてください。</p><div className={s.fields}>{legacy.map(l=><label key={l.animal+':'+l.material}>{l.animal} ／ {MATERIALS.find(m=>m.key===l.material)?.label}<input aria-label={`旧明細 ${l.animal} ${l.material}`} type="number" min="0" max="999999" step="1" value={rows[l.animal]?.[l.material]??''} onChange={e=>change(l.animal,l.material,e.target.value)}/></label>)}</div></div>}
