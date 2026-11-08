@@ -8,11 +8,17 @@
 .wrap{max-width:1840px}.page{padding:18px}.header{margin-bottom:14px}.header h1{font-size:25px}.workspace{display:grid;grid-template-columns:250px minmax(560px,1fr) minmax(320px,420px);gap:16px;align-items:start}.workspace .panel{padding:16px}.workspace .list{max-height:55vh}.previewPanel{position:sticky;top:16px}.previewPanel .card{max-height:55vh;object-fit:contain}.previewPanel .imageBox{margin-bottom:8px}.publishBox{padding:14px;background:#edf1e4;border-radius:10px;margin:16px 0}.tableScroll{overflow:auto;max-height:55vh}.batch{font-size:13px;margin:0}.batch th,.batch td{padding:6px}.batch th small{display:block;font-size:10px;font-weight:normal;color:#728066;white-space:nowrap}.batch input{padding:7px;width:100%;min-width:78px}.batch thead{position:sticky;top:0;background:#fffef8;z-index:1}.section{border-top:1px solid #d8ddca;margin-top:18px;padding-top:16px}.section summary{margin-bottom:12px}.workspace .fields{gap:10px}.workspace .row{margin:10px 0}.workspace .table th:first-child{min-width:85px}.workspace .fields textarea{min-height:60px}@media(max-width:1350px){.workspace{grid-template-columns:220px minmax(450px,1fr)}.previewPanel{grid-column:2;position:static}.previewPanel .card{max-height:65vh}}@media(max-width:850px){.workspace{grid-template-columns:minmax(0,1fr)}.previewPanel{grid-column:1}.workspace .list{max-height:200px}.tableScroll{max-height:60vh}.header{align-items:flex-start}.header nav{margin:0}.batch input{min-width:70px}}
 
 .purchase {min-width:0}
-.purchaseTable {min-width:1450px}
-.purchaseTable th {white-space:nowrap}
-.purchaseTable th small {display:block;font-weight:normal;font-size:11px}
-.purchaseTable input {width:80px;min-width:0;padding:7px}
-.purchaseTable th:first-child {position:sticky;left:0;background:#faf8ee;z-index:1;min-width:100px}
-.purchaseTable tfoot {font-weight:bold;background:#edf1e6}
+/* v2.29: three quality columns; no wide purchase matrix */
+.purchaseAnimals{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.purchaseAnimal{min-width:0;border:1px solid #d8ddca;border-radius:8px;padding:10px;background:#fafbf5}
+.purchaseAnimal summary{overflow-wrap:anywhere}
+.purchaseAnimal summary span{float:right;font-size:12px;font-weight:normal;margin-left:8px}
+.compactPurchase{width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 14px;font-size:13px}
+.compactPurchase th,.compactPurchase td{padding:6px 4px;text-align:center;border-bottom:1px solid #d8ddca;overflow-wrap:anywhere}
+.compactPurchase th:first-child{width:24%}
+.compactPurchase small{display:block;font-size:10px;font-weight:normal;color:#728066;margin-bottom:4px;overflow-wrap:anywhere}
+.page .compactPurchase input{width:100%;min-width:0;padding:8px 4px;font-size:14px}
+.compactPurchase caption{text-align:left;padding:8px 0}
+.purchase h4{margin:16px 0 8px}
 .purchaseTotal {display:flex;flex-wrap:wrap;gap:10px 22px;padding:14px 0}
 .purchaseTotal b {display:block;font-size:1.25rem;color:#294d36}

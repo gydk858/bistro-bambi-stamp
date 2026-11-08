@@ -2,11 +2,16 @@
 import {useEffect,useRef,useState} from 'react'
 import {MATERIALS,DEFAULT_PRICES,COIN_RATE,purchaseSummary} from '@/lib/hunter-purchase'
 import s from './hunters.module.css'
+const birdAnimals=['鵜','チキンホーク','カラス'],birdKeys=['fine_bird','bird','poor_bird']
+const sizes=[{label:'大',keys:['fine_large','large','poor_large']},{label:'中',keys:['fine_medium','medium','poor_medium']},{label:'小',keys:['fine_small','small','poor_small']}]
 const skin=MATERIALS.filter(m=>m.key!=='meat'),money=n=>Number(n).toLocaleString('ja-JP')
 export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSave}){
  const [rows,setRows]=useState({}),[meat,setMeat]=useState(''),[actor,setActor]=useState(''),[note,setNote]=useState(''),[editing,setEditing]=useState(null),[receipts,setReceipts]=useState([]),[count,setCount]=useState(0),[page,setPage]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState(''),[prices,setPrices]=useState(DEFAULT_PRICES),[rate,setRate]=useState(COIN_RATE),[retry,setRetry]=useState(0)
  const operation=useRef(null)
  const options=[...new Set([...animals,...(editing?.lines||[]).map(l=>l.animal).filter(Boolean)])]
+ const [expanded,setExpanded]=useState({})
+ const furAnimals=options.filter(a=>!birdAnimals.includes(a)),birds=options.filter(a=>birdAnimals.includes(a))
+ const legacy=(editing?.lines||[]).filter(l=>l.material!=='meat'&&birdAnimals.includes(l.animal)!==birdKeys.includes(l.material))
  const lines=options.flatMap(animal=>skin.filter(m=>Number(rows[animal]?.[m.key])>0).map(m=>({animal,material:m.key,quantity:Number(rows[animal][m.key])})))
  if(Number(meat)>0)lines.push({animal:null,material:'meat',quantity:Number(meat)})
  const usedPrices=editing?.unit_prices||prices,usedRate=editing?.coin_rate||rate,summary=purchaseSummary(lines,usedPrices,usedRate)
@@ -15,8 +20,8 @@ export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSa
  useEffect(()=>{try{setActor(localStorage.getItem('bambi-hunter-purchase-actor')||'')}catch{}},[])
  useEffect(()=>{let active=true;setLoading(true);setError('');api(`?purchases=1&hunter_id=${card.id}&purchase_page=${page}`).then(d=>{if(active){setReceipts(d.purchases);setCount(d.count);setPrices(d.prices);setRate(d.coin_rate)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[card.id,page,retry])
  function change(animal,key,value){operation.current=null;setRows(r=>({...r,[animal]:{...r[animal],[key]:value}}))}
- function reset(){operation.current=null;setEditing(null);setRows({});setMeat('');setNote('');setError('')}
- function edit(r){if(hasInput&&!confirm('入力中の内容を破棄して訂正しますか？'))return;const next={};for(const l of r.lines)if(l.material!=='meat'){next[l.animal]??={};next[l.animal][l.material]=String(l.quantity)};operation.current=null;setRows(next);setMeat(String(r.lines.find(l=>l.material==='meat')?.quantity||''));setNote(r.note);setEditing(r);setError('')}
+ function reset(){operation.current=null;setEditing(null);setExpanded({});setRows({});setMeat('');setNote('');setError('')}
+ function edit(r){if(hasInput&&!confirm('入力中の内容を破棄して訂正しますか？'))return;const next={};for(const l of r.lines)if(l.material!=='meat'){next[l.animal]??={};next[l.animal][l.material]=String(l.quantity)};operation.current=null;setExpanded(Object.fromEntries(Object.keys(next).map(a=>[a,true])));setRows(next);setMeat(String(r.lines.find(l=>l.material==='meat')?.quantity||''));setNote(r.note);setEditing(r);setError('')}
  function send(action,r=editing){
   setError('');if(!actor.trim()){setError('受付担当者名を入力してください。');return}
   if(action==='purchase_save'&&!lines.length){setError('買取する数量を入力してください。');return}
@@ -27,11 +32,13 @@ export default function HunterPurchase({card,animals,api,busy,dirty,onDirty,onSa
   onSave({...payload,operation_id:operation.current.id})
  }
  return <section className={s.purchase}><h3>{editing?'買取の訂正':'素材の買取'} <small>累計 {money(card.kills)} 頭</small></h3>
- <p className={s.muted}>動物別に素材の個数を入力。皮・鳥素材1個＝1頭、肉は買取のみです。表は横にスクロールできます。</p>
+ <p className={s.muted}>動物別に素材の個数を入力。皮・鳥素材1個＝1頭、肉は買取のみです。皮は動物名を押すと入力欄が開きます。鳥は下の専用表に入力してください。</p>
  {error&&<p role="alert" className={s.error}>{error} <button type="button" disabled={busy||loading} onClick={()=>setRetry(x=>x+1)}>履歴を再取得</button></p>}
  <form onSubmit={e=>{e.preventDefault();send('purchase_save')}}><fieldset disabled={busy||dirty||loading}>
  <div className={s.fields}><label>受付担当者名<input required maxLength={40} value={actor} onChange={e=>{operation.current=null;setActor(e.target.value)}} autoComplete="off"/></label><label>肉の合計個数（討伐数には含めない）<input aria-label="肉の合計個数" type="number" min="0" max="999999" step="1" value={meat} placeholder="0" onChange={e=>{operation.current=null;setMeat(e.target.value)}}/></label></div>
- <div className={s.tableScroll}><table className={`${s.table} ${s.purchaseTable}`}><thead><tr><th>動物</th>{skin.map(m=><th key={m.key}>{m.label}<small>¥{money(usedPrices[m.key])}</small></th>)}<th>加算頭数</th></tr></thead><tbody>{options.map(a=><tr key={a}><th>{a}</th>{skin.map(m=><td key={m.key}><input aria-label={`${a} ${m.label}`} type="number" min="0" max="999999" step="1" placeholder="—" value={rows[a]?.[m.key]??''} onChange={e=>change(a,m.key,e.target.value)}/></td>)}<td>{summary.animals[a]||0} 頭</td></tr>)}</tbody><tfoot><tr><th>素材合計</th>{skin.map(m=><td key={m.key}>{summary.materials[m.key]||0}</td>)}<td>{summary.kills} 頭</td></tr></tfoot></table></div>
+ <h4>皮の買取</h4><div className={s.purchaseAnimals}>{furAnimals.map(a=><details key={a} className={s.purchaseAnimal} open={!!expanded[a]} onToggle={e=>{const open=e.currentTarget.open;setExpanded(prev=>prev[a]===open?prev:{...prev,[a]:open})}}><summary>{a}<span>今回 {summary.animals[a]||0} 頭</span></summary><table className={s.compactPurchase}><caption className={s.muted}>{a}の皮（個数を入力）</caption><thead><tr><th scope="col">サイズ</th>{['上質','通常','悪質'].map(q=><th scope="col" key={q}>{q}</th>)}</tr></thead><tbody>{sizes.map(size=><tr key={size.label}><th scope="row">{size.label}</th>{size.keys.map(k=>{const m=MATERIALS.find(m=>m.key===k);return <td key={k}><small>¥{money(usedPrices[k])}</small><input aria-label={`${a} ${m.label}`} type="number" inputMode="numeric" min="0" max="999999" step="1" placeholder="—" value={rows[a]?.[k]??''} onChange={e=>change(a,k,e.target.value)}/></td>})}</tr>)}</tbody></table></details>)}</div>
+ <h4>鳥の買取</h4>{birds.length?<table className={s.compactPurchase}><thead><tr><th scope="col">動物</th>{birdKeys.map(k=><th scope="col" key={k}>{MATERIALS.find(m=>m.key===k).label}<small>¥{money(usedPrices[k])}</small></th>)}</tr></thead><tbody>{birds.map(a=><tr key={a}><th scope="row">{a}<small>今回 {summary.animals[a]||0} 頭</small></th>{birdKeys.map(k=><td key={k}><input aria-label={`${a} ${MATERIALS.find(m=>m.key===k).label}`} type="number" inputMode="numeric" min="0" max="999999" step="1" placeholder="—" value={rows[a]?.[k]??''} onChange={e=>change(a,k,e.target.value)}/></td>)}</tr>)}</tbody></table>:<p className={s.muted}>鳥の対象動物は登録されていません。</p>}
+ {legacy.length>0&&<div className={s.notice}><b>旧形式の登録明細</b><p>現在の皮・鳥の分類と異なる過去の入力です。訂正時に消えないよう別欄で表示します。不要な数量は0にしてください。</p><div className={s.fields}>{legacy.map(l=><label key={l.animal+':'+l.material}>{l.animal} ／ {MATERIALS.find(m=>m.key===l.material)?.label}<input aria-label={`旧明細 ${l.animal} ${l.material}`} type="number" min="0" max="999999" step="1" value={rows[l.animal]?.[l.material]??''} onChange={e=>change(l.animal,l.material,e.target.value)}/></label>)}</div></div>}
  <div className={s.purchaseTotal}><span>買取合計 <b>¥{money(summary.amount)}</b></span><span>支払コイン <b>{money(summary.coins)} 枚</b></span><span>{editing?'訂正後の加算':'今回追加'} <b>{money(summary.kills)} 頭</b></span></div>
  <p className={s.muted}>肉：1個 ¥{money(usedPrices.meat)} ／ ¥{usedRate}＝1コイン。{editing?'単価はこの買取の登録時のものを使用します。':''}</p>
  {editing&&<p className={s.notice}>訂正によるコイン差額：{summary.coins-editing.coins>=0?'+':''}{money(summary.coins-editing.coins)} 枚（正＝追加支払、負＝返金確認）。頭数は旧明細を置き換えて再計算します。</p>}
