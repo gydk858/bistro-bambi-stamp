@@ -73,7 +73,8 @@ export async function POST(request){
   }
   const old=['create','profile','background','rotate_access','access'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
   if(body.action==='profile') {const c=await hunterCard(db,store,body.id);const ranks=await hunterRanks(db,store);if(body.rank&&body.rank!==c.rank&&!ranks.some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。');body.mission=c.mission}
-  if(body.action==='create'&&body.rank&&!(await hunterRanks(db,store)).some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。')
+  if(body.action==='create'&&(body.rank==null||String(body.rank).trim()===''))body.rank='1'
+  if(body.action==='create'&&body.rank!=='1'&&body.rank&&!(await hunterRanks(db,store)).some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。')
   const {data,error}=await db.rpc(next.includes(body.action)?'bambi_hunter_action_v214':'bambi_hunter_action',next.includes(body.action)?{p_store:store,p_action:body.action,p_data:body,p_owner:null}:{p_store:store,p_action:body.action,p_data:body,p_token:null});if(error)throw error
   if(['create','profile','record_save','record_delete','legacy_count','owner_rotate','owner_access'].includes(body.action))return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})
   return reply({settings:data})
