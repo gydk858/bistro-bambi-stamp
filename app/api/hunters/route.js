@@ -1,4 +1,5 @@
 import sharp from 'sharp'
+import {hunterEmployees,hunterEmployeeActor} from '@/lib/hunter-employees'
 import {DEFAULT_PRICES,COIN_RATE} from '@/lib/hunter-purchase'
 import {randomUUID} from 'node:crypto'
 import {eventDB} from '@/lib/event-server'
@@ -15,6 +16,7 @@ export async function GET(request){
  try{auth=await hunterAuth(db,request.headers.get('x-hunter-token'))}catch(e){return reply({error:e.message},401)}
  try{
   const {store,operator}=auth
+  if(q.has('employees'))return reply({employees:await hunterEmployees(db,store)})
   const settings=operator?{animals:auth.settings.animals,version:auth.settings.version,background_id:auth.settings.background_id}:auth.settings
   if(operator&&(q.has('template')||q.has('asset')))return reply({error:'管理者のみ操作できます。'},403)
   if(q.has('template'))return pngResponse(await sharp(hunterTemplate(settings.animals?.length||10)).png().toBuffer())
@@ -60,6 +62,7 @@ export async function POST(request){
   if(operator&&!['purchase_save','purchase_cancel','create','profile','record_batch','record_save','record_delete','legacy_count','owner_rotate','owner_access','prepare'].includes(body.action))return reply({error:'管理者のみ操作できます。'},403)
   if(body.action==='prepare'){const card=await hunterCard(db,store,body.id);return reply({card,print_url:hunterPublicURL(db,card),...await prepareHunterPrint(store,card.id)})}
   if(['purchase_save','purchase_cancel'].includes(body.action)){
+   body.actor=await hunterEmployeeActor(db,store,body.actor_user_id)
    const {data,error}=await db.rpc('bambi_hunter_purchase',{p_store:store,p_data:body});if(error)throw error
    return reply({card:clean(data.card),purchase:data.purchase,print_url:hunterPublicURL(db,data.card),print_pending:true})
   }
