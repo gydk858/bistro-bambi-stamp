@@ -1,5 +1,7 @@
 'use client'
 
+import theme from '@/lib/ui-theme'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -34,12 +36,12 @@ export default function AdminLoginPage() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={styles.header}>
-          <div style={styles.brandMark}>🦌</div>
+          <p className="site-kicker">STAFF ENTRANCE</p>
 
-          <h1 style={styles.title}>-Bistro-Bambi</h1>
+          <h1 style={styles.title}>スタッフログイン</h1>
 
           <p style={styles.subtitle}>
-            管理画面ログイン
+            ビストロバンビ
           </p>
 
           <p style={styles.description}>
@@ -90,24 +92,11 @@ export default function AdminLoginPage() {
   )
 }
 
-const theme = {
-  bg: '#eef2ec',
-  bg2: '#f7faf5',
-  panel: '#fbfdf9',
-  border: '#d8e3d2',
-  border2: '#c4d3bd',
-  text: '#263427',
-  muted: '#6c7b67',
-  deep: '#2f4a34',
-  green: '#52785a',
-  pale: '#e6efe1',
-  white: '#ffffff',
-  danger: '#8f5b50',
-}
+
 
 const styles = {
   page: {
-    minHeight: '100vh',
+    minHeight: '65vh',
     background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
     display: 'flex',
     alignItems: 'center',
@@ -120,9 +109,9 @@ const styles = {
     maxWidth: '560px',
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '28px',
+    borderRadius: '4px',
     padding: '40px 36px',
-    boxShadow: '0 14px 34px rgba(47, 74, 52, 0.10)',
+    boxShadow: 'none',
   },
   header: {
     textAlign: 'center',
@@ -131,7 +120,7 @@ const styles = {
   brandMark: {
     width: '72px',
     height: '72px',
-    borderRadius: '22px',
+    borderRadius: '4px',
     background: theme.pale,
     border: `1px solid ${theme.border2}`,
     display: 'flex',
@@ -141,13 +130,15 @@ const styles = {
     margin: '0 auto 18px',
   },
   title: {
-    fontSize: '42px',
+    fontFamily: 'var(--font-heading)',
+    fontSize: '28px',
     fontWeight: 950,
     color: theme.deep,
     margin: 0,
     letterSpacing: '-0.02em',
   },
   subtitle: {
+    fontFamily: 'var(--font-heading)',
     margin: '14px 0 0',
     fontSize: '23px',
     color: theme.deep,
@@ -178,7 +169,7 @@ const styles = {
     flex: 1,
     padding: '16px 16px',
     fontSize: '18px',
-    borderRadius: '14px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -190,7 +181,7 @@ const styles = {
     padding: '15px 16px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '13px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -202,18 +193,18 @@ const styles = {
     padding: '16px 18px',
     fontSize: '18px',
     fontWeight: 950,
-    borderRadius: '14px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
     cursor: 'pointer',
-    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+    boxShadow: 'none',
   },
   messageBox: {
     marginTop: '20px',
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '15px 16px',
   },
   messageText: {

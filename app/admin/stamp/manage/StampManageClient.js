@@ -1,5 +1,7 @@
 'use client'
 
+import theme from '@/lib/ui-theme'
+
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
@@ -389,26 +391,11 @@ export default function StampManageClient() {
   )
 }
 
-const theme = {
-  bg: '#eef2ec',
-  bg2: '#f7faf5',
-  panel: '#fbfdf9',
-  panel2: '#f3f7ef',
-  border: '#d8e3d2',
-  border2: '#c4d3bd',
-  text: '#263427',
-  muted: '#6c7b67',
-  deep: '#2f4a34',
-  green: '#52785a',
-  pale: '#e6efe1',
-  white: '#ffffff',
-  danger: '#8f5b50',
-  dangerPale: '#f3ece9',
-}
+
 
 const styles = {
   page: {
-    minHeight: '100vh',
+    minHeight: '65vh',
     background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
     color: theme.text,
     padding: '24px',
@@ -418,12 +405,12 @@ const styles = {
     margin: '0 auto',
   },
   header: {
-    background: theme.panel,
-    border: `1px solid ${theme.border}`,
-    borderRadius: '24px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
     padding: '24px 28px',
     marginBottom: '18px',
-    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    boxShadow: 'none',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -438,7 +425,7 @@ const styles = {
   brandMark: {
     width: '58px',
     height: '58px',
-    borderRadius: '18px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -447,6 +434,7 @@ const styles = {
     border: `1px solid ${theme.border2}`,
   },
   title: {
+    fontFamily: 'var(--font-heading)',
     fontSize: '38px',
     fontWeight: 950,
     color: theme.deep,
@@ -454,6 +442,7 @@ const styles = {
     letterSpacing: '-0.02em',
   },
   subtitle: {
+    fontFamily: 'var(--font-heading)',
     margin: '8px 0 0',
     fontSize: '20px',
     color: theme.deep,
@@ -474,7 +463,7 @@ const styles = {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 800,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -486,15 +475,15 @@ const styles = {
   warningPanel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
     marginBottom: '18px',
   },
   warningBadge: {
     display: 'inline-flex',
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.pale,
     border: `1px solid ${theme.border2}`,
     color: theme.deep,
@@ -525,16 +514,16 @@ const styles = {
   panel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '24px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
   },
   restorePanel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '24px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
   },
   restoreHeader: {
     display: 'flex',
@@ -547,7 +536,7 @@ const styles = {
   restoreBadge: {
     display: 'inline-flex',
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.pale,
     border: `1px solid ${theme.border2}`,
     color: theme.deep,
@@ -559,7 +548,7 @@ const styles = {
   iconBox: {
     width: '58px',
     height: '58px',
-    borderRadius: '18px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -587,18 +576,18 @@ const styles = {
     padding: '14px 18px',
     fontSize: '16px',
     fontWeight: 950,
-    borderRadius: '13px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
     cursor: 'pointer',
-    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+    boxShadow: 'none',
   },
   secondaryButton: {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -616,7 +605,7 @@ const styles = {
     padding: '14px 18px',
     fontSize: '16px',
     fontWeight: 950,
-    borderRadius: '13px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.danger,
@@ -631,7 +620,7 @@ const styles = {
     marginTop: '18px',
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '14px',
+    borderRadius: '4px',
     padding: '14px 16px',
     fontSize: '15px',
     color: theme.deep,
@@ -641,7 +630,7 @@ const styles = {
   emptyBox: {
     background: theme.white,
     border: `1px dashed ${theme.border2}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '38px 24px',
     textAlign: 'center',
     color: theme.muted,
@@ -652,7 +641,7 @@ const styles = {
     overflowX: 'auto',
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
   },
   table: {
     width: '100%',
@@ -711,7 +700,7 @@ const styles = {
     padding: '9px 12px',
     fontSize: '13px',
     fontWeight: 900,
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,

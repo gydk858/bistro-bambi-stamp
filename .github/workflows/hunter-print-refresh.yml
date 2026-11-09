@@ -1,0 +1,25 @@
+name: Daily hunter print refresh
+on:
+  schedule:
+    # UTC 10:50 = Asia/Tokyo 19:50. GitHub may delay scheduled runs.
+    - cron: '50 10 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hunter-print-refresh
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Refresh all hunter cards
+        env:
+          BAMBI_APP_URL: ${{ vars.BAMBI_APP_URL }}
+          HUNTER_REFRESH_SECRET: ${{ secrets.HUNTER_REFRESH_SECRET }}
+        run: node tools/refresh-hunter-cards.mjs

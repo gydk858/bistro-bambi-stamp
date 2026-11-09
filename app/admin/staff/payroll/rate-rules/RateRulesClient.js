@@ -1,5 +1,7 @@
 'use client'
 
+import theme from '@/lib/ui-theme'
+
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -628,27 +630,11 @@ function SummaryCard({ label, value, sub }) {
   )
 }
 
-const theme = {
-  bg: '#eef2ec',
-  bg2: '#f7faf5',
-  panel: '#fbfdf9',
-  panel2: '#f3f7ef',
-  border: '#d8e3d2',
-  border2: '#c4d3bd',
-  text: '#263427',
-  muted: '#6c7b67',
-  deep: '#2f4a34',
-  green: '#52785a',
-  green2: '#6f9272',
-  pale: '#e6efe1',
-  pale2: '#edf4e8',
-  white: '#ffffff',
-  danger: '#8f5b50',
-}
+
 
 const styles = {
   page: {
-    minHeight: '100vh',
+    minHeight: '65vh',
     background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
     color: theme.text,
     padding: '24px',
@@ -658,12 +644,12 @@ const styles = {
     margin: '0 auto',
   },
   header: {
-    background: theme.panel,
-    border: `1px solid ${theme.border}`,
-    borderRadius: '24px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
     padding: '24px 28px',
     marginBottom: '20px',
-    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    boxShadow: 'none',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -678,7 +664,7 @@ const styles = {
   brandMark: {
     width: '58px',
     height: '58px',
-    borderRadius: '18px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -687,6 +673,7 @@ const styles = {
     border: `1px solid ${theme.border2}`,
   },
   title: {
+    fontFamily: 'var(--font-heading)',
     fontSize: '38px',
     fontWeight: 900,
     color: theme.deep,
@@ -694,6 +681,7 @@ const styles = {
     letterSpacing: '-0.02em',
   },
   subtitle: {
+    fontFamily: 'var(--font-heading)',
     margin: '8px 0 0',
     fontSize: '18px',
     color: theme.muted,
@@ -712,7 +700,7 @@ const styles = {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 800,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -728,7 +716,7 @@ const styles = {
     color: theme.deep,
     background: theme.white,
     padding: '14px 16px',
-    borderRadius: '14px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border}`,
     whiteSpace: 'pre-wrap',
   },
@@ -741,9 +729,9 @@ const styles = {
   summaryCard: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '18px',
+    borderRadius: '4px',
     padding: '18px',
-    boxShadow: '0 10px 24px rgba(47, 74, 52, 0.06)',
+    boxShadow: 'none',
   },
   summaryLabel: {
     fontSize: '12px',
@@ -773,26 +761,26 @@ const styles = {
   editorPanel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
     position: 'sticky',
     top: '18px',
   },
   listPanel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
     minWidth: 0,
   },
   panel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
   },
   sectionHead: {
     marginBottom: '16px',
@@ -812,7 +800,7 @@ const styles = {
   editingBox: {
     background: theme.pale,
     border: `1px solid ${theme.border2}`,
-    borderRadius: '14px',
+    borderRadius: '4px',
     padding: '12px 14px',
     color: theme.deep,
     fontSize: '14px',
@@ -840,7 +828,7 @@ const styles = {
     boxSizing: 'border-box',
     padding: '12px 13px',
     fontSize: '16px',
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -851,7 +839,7 @@ const styles = {
     boxSizing: 'border-box',
     padding: '12px 13px',
     fontSize: '15px',
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -875,7 +863,7 @@ const styles = {
   rateBox: {
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '16px',
   },
   rateTitle: {
@@ -895,7 +883,7 @@ const styles = {
     padding: '13px 16px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
@@ -903,14 +891,14 @@ const styles = {
     textDecoration: 'none',
     display: 'inline-flex',
     alignItems: 'center',
-    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+    boxShadow: 'none',
   },
   secondaryButton: {
     justifyContent: 'center',
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -922,7 +910,7 @@ const styles = {
   emptyBox: {
     background: theme.white,
     border: `1px dashed ${theme.border2}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '42px 24px',
     textAlign: 'center',
     color: theme.muted,
@@ -937,9 +925,9 @@ const styles = {
   ruleSetCard: {
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '18px',
+    borderRadius: '4px',
     padding: '18px',
-    boxShadow: '0 8px 20px rgba(47, 74, 52, 0.05)',
+    boxShadow: 'none',
   },
   ruleSetCardActive: {
     border: `2px solid ${theme.green}`,
@@ -966,7 +954,7 @@ const styles = {
   },
   activeBadge: {
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.green,
     color: theme.white,
     fontSize: '12px',
@@ -975,7 +963,7 @@ const styles = {
   },
   inactiveBadge: {
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.panel2,
     color: theme.muted,
     border: `1px solid ${theme.border}`,
@@ -989,14 +977,14 @@ const styles = {
     color: theme.muted,
     background: theme.panel2,
     border: `1px solid ${theme.border}`,
-    borderRadius: '12px',
+    borderRadius: '4px',
     padding: '10px 12px',
     lineHeight: 1.6,
   },
   ruleRows: {
     marginTop: '12px',
     border: `1px solid ${theme.border}`,
-    borderRadius: '14px',
+    borderRadius: '4px',
     overflow: 'hidden',
   },
   ruleRow: {
@@ -1020,7 +1008,7 @@ const styles = {
     padding: '10px 14px',
     fontSize: '14px',
     fontWeight: 900,
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
@@ -1030,7 +1018,7 @@ const styles = {
     padding: '10px 14px',
     fontSize: '14px',
     fontWeight: 900,
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.danger,

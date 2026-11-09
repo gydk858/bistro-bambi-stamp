@@ -1,5 +1,7 @@
 'use client'
 
+import theme from '@/lib/ui-theme'
+
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -508,26 +510,11 @@ function SummaryCard({ label, value, sub }) {
   )
 }
 
-const theme = {
-  bg: '#eef2ec',
-  bg2: '#f7faf5',
-  panel: '#fbfdf9',
-  panel2: '#f3f7ef',
-  border: '#d8e3d2',
-  border2: '#c4d3bd',
-  text: '#263427',
-  muted: '#6c7b67',
-  deep: '#2f4a34',
-  green: '#52785a',
-  pale: '#e6efe1',
-  white: '#ffffff',
-  danger: '#8f5b50',
-  dangerPale: '#f3ece9',
-}
+
 
 const styles = {
   page: {
-    minHeight: '100vh',
+    minHeight: '65vh',
     background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
     color: theme.text,
     padding: '24px',
@@ -537,12 +524,12 @@ const styles = {
     margin: '0 auto',
   },
   header: {
-    background: theme.panel,
-    border: `1px solid ${theme.border}`,
-    borderRadius: '24px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
     padding: '24px 28px',
     marginBottom: '18px',
-    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    boxShadow: 'none',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -557,7 +544,7 @@ const styles = {
   brandMark: {
     width: '58px',
     height: '58px',
-    borderRadius: '18px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -566,6 +553,7 @@ const styles = {
     border: `1px solid ${theme.border2}`,
   },
   title: {
+    fontFamily: 'var(--font-heading)',
     fontSize: '38px',
     fontWeight: 950,
     color: theme.deep,
@@ -573,6 +561,7 @@ const styles = {
     letterSpacing: '-0.02em',
   },
   subtitle: {
+    fontFamily: 'var(--font-heading)',
     margin: '8px 0 0',
     fontSize: '20px',
     color: theme.deep,
@@ -600,7 +589,7 @@ const styles = {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 800,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -613,7 +602,7 @@ const styles = {
     marginBottom: '18px',
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '14px',
+    borderRadius: '4px',
     padding: '14px 16px',
     fontSize: '15px',
     color: theme.deep,
@@ -629,9 +618,9 @@ const styles = {
   summaryCard: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '18px',
+    borderRadius: '4px',
     padding: '18px',
-    boxShadow: '0 10px 24px rgba(47, 74, 52, 0.06)',
+    boxShadow: 'none',
   },
   summaryLabel: {
     fontSize: '12px',
@@ -655,9 +644,9 @@ const styles = {
   panel: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '20px',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
     marginBottom: '18px',
   },
   sectionHead: {
@@ -692,7 +681,7 @@ const styles = {
     boxSizing: 'border-box',
     padding: '12px 13px',
     fontSize: '16px',
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -702,7 +691,7 @@ const styles = {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -716,7 +705,7 @@ const styles = {
     overflowX: 'auto',
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
   },
   table: {
     width: '100%',
@@ -771,7 +760,7 @@ const styles = {
     boxSizing: 'border-box',
     padding: '9px 10px',
     fontSize: '14px',
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -782,7 +771,7 @@ const styles = {
     boxSizing: 'border-box',
     padding: '9px 10px',
     fontSize: '14px',
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.text,
@@ -799,7 +788,7 @@ const styles = {
   statusBadge: {
     display: 'inline-flex',
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.pale,
     color: theme.deep,
     fontSize: '12px',
@@ -815,7 +804,7 @@ const styles = {
     padding: '9px 12px',
     fontSize: '13px',
     fontWeight: 900,
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
@@ -826,7 +815,7 @@ const styles = {
     padding: '9px 12px',
     fontSize: '13px',
     fontWeight: 900,
-    borderRadius: '10px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -842,7 +831,7 @@ const styles = {
   emptyBox: {
     background: theme.white,
     border: `1px dashed ${theme.border2}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '42px 24px',
     textAlign: 'center',
     color: theme.muted,

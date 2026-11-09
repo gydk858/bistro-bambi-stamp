@@ -1,5 +1,7 @@
 'use client'
 
+import theme from '@/lib/ui-theme'
+
 export default function StaffMenuClient() {
   const menuItems = [
     {
@@ -151,24 +153,11 @@ export default function StaffMenuClient() {
   )
 }
 
-const theme = {
-  bg: '#eef2ec',
-  bg2: '#f7faf5',
-  panel: '#fbfdf9',
-  panel2: '#f3f7ef',
-  border: '#d8e3d2',
-  border2: '#c4d3bd',
-  text: '#263427',
-  muted: '#6c7b67',
-  deep: '#2f4a34',
-  green: '#52785a',
-  pale: '#e6efe1',
-  white: '#ffffff',
-}
+
 
 const styles = {
   page: {
-    minHeight: '100vh',
+    minHeight: '65vh',
     background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.bg2} 100%)`,
     padding: '24px',
     color: theme.text,
@@ -178,12 +167,12 @@ const styles = {
     margin: '0 auto',
   },
   header: {
-    background: theme.panel,
-    border: `1px solid ${theme.border}`,
-    borderRadius: '24px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
     padding: '28px 32px',
     marginBottom: '24px',
-    boxShadow: '0 12px 30px rgba(47, 74, 52, 0.08)',
+    boxShadow: 'none',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -198,7 +187,7 @@ const styles = {
   brandMark: {
     width: '64px',
     height: '64px',
-    borderRadius: '20px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -207,6 +196,7 @@ const styles = {
     border: `1px solid ${theme.border2}`,
   },
   title: {
+    fontFamily: 'var(--font-heading)',
     fontSize: '42px',
     fontWeight: 950,
     color: theme.deep,
@@ -214,6 +204,7 @@ const styles = {
     letterSpacing: '-0.02em',
   },
   subtitle: {
+    fontFamily: 'var(--font-heading)',
     margin: '10px 0 0',
     fontSize: '22px',
     color: theme.deep,
@@ -235,7 +226,7 @@ const styles = {
     padding: '12px 16px',
     fontSize: '15px',
     fontWeight: 800,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: `1px solid ${theme.border2}`,
     background: theme.white,
     color: theme.deep,
@@ -253,9 +244,9 @@ const styles = {
   menuCard: {
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '22px',
+    borderRadius: '4px',
     padding: '24px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
     minHeight: '280px',
     display: 'flex',
     flexDirection: 'column',
@@ -266,7 +257,7 @@ const styles = {
   iconBox: {
     width: '62px',
     height: '62px',
-    borderRadius: '18px',
+    borderRadius: '4px',
     background: theme.pale,
     display: 'flex',
     alignItems: 'center',
@@ -293,7 +284,7 @@ const styles = {
     padding: '13px 17px',
     fontSize: '15px',
     fontWeight: 900,
-    borderRadius: '12px',
+    borderRadius: '4px',
     border: 'none',
     background: theme.green,
     color: theme.white,
@@ -301,20 +292,20 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     width: 'fit-content',
-    boxShadow: '0 8px 18px rgba(82, 120, 90, 0.22)',
+    boxShadow: 'none',
   },
   memoPanel: {
     marginTop: '20px',
     background: theme.panel,
     border: `1px solid ${theme.border}`,
-    borderRadius: '22px',
+    borderRadius: '4px',
     padding: '24px',
-    boxShadow: '0 10px 28px rgba(47, 74, 52, 0.07)',
+    boxShadow: 'none',
   },
   memoBadge: {
     display: 'inline-flex',
     padding: '6px 10px',
-    borderRadius: '999px',
+    borderRadius: '4px',
     background: theme.pale,
     border: `1px solid ${theme.border2}`,
     color: theme.deep,
@@ -338,7 +329,7 @@ const styles = {
   memoItem: {
     background: theme.white,
     border: `1px solid ${theme.border}`,
-    borderRadius: '16px',
+    borderRadius: '4px',
     padding: '16px',
   },
   memoLabel: {
