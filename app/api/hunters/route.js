@@ -1,3 +1,4 @@
+import {animalKey} from '@/lib/hunter-animals'
 import sharp from 'sharp'
 import {hunterEmployees,hunterEmployeeActor} from '@/lib/hunter-employees'
 import {DEFAULT_PRICES,COIN_RATE} from '@/lib/hunter-purchase'
@@ -36,7 +37,15 @@ export async function GET(request){
     db.from('bambi_hunter_sizes').select('*',{count:'exact'}).eq('hunter_id',card.id).order('created_at',{ascending:false}).range(rp*30,rp*30+29),
     hunterStats(db,card.id),hunterRanks(db,store),hunterCrowns(db,store)
    ]);if(h.error)throw h.error;if(r.error)throw r.error
-   return reply({card,history:h.data,records:r.data,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings,crowns)})
+   const sizeActors=new Map(),sizeIds=r.data.map(record=>record.id)
+   if(sizeIds.length)for(let offset=0;;offset+=500){
+    const {data,error}=await db.from('bambi_hunter_history').select('after_data').eq('hunter_id',card.id).eq('action','size_save').in('after_data->size->>id',sizeIds).order('created_at',{ascending:false}).order('id',{ascending:false}).range(offset,offset+499)
+    if(error)throw error
+    for(const entry of data){const id=entry.after_data?.size?.id;if(!sizeActors.has(id))sizeActors.set(id,entry.after_data?.request?.actor||null)}
+    if(data.length<500||sizeActors.size===sizeIds.length)break
+   }
+   const sizeRecords=r.data.map(record=>({...record,actor:sizeActors.get(record.id)||null}))
+   return reply({card,history:h.data,records:sizeRecords,record_count:r.count,stats,ranks,print_url:hunterPublicURL(db,card),print_pending:hunterPrintPending(card,settings,crowns)})
   }
   const term=(q.get('search')||'').trim().replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0));if(term&&!/^\d{1,15}$/.test(term))throw Error('管理番号を数字で入力してください。')
   const page=Math.max(0,Math.min(100000,Math.floor(Number(q.get('page'))||0)));let query=db.from('bambi_hunters').select(HUNTER_FIELDS,{count:'exact'}).eq('store_id',store);if(term)query=query.eq('hunter_no',term)
@@ -68,9 +77,11 @@ export async function POST(request){
    return reply({card:clean(data.card),purchase:data.purchase,print_url:hunterPublicURL(db,data.card),print_pending:true})
   }
   if(['size_save','size_delete'].includes(body.action)){
+   body.actor=await hunterEmployeeActor(db,store,body.actor_user_id)
    const {data,error}=await db.rpc('bambi_hunter_size_action',{p_store:store,p_data:body});if(error)throw error
    return reply({card:clean(data),print_url:hunterPublicURL(db,data),print_pending:true})
   }
+  if(body.action==='animals_save'&&Array.isArray(body.animals))body.animals=[...new Set(body.animals.map(animalKey))]
   const old=['create','profile','background','rotate_access','access'],next=['animals_save','rank_save','record_save','record_delete','legacy_count','owner_rotate','owner_access'];if(!old.includes(body.action)&&!next.includes(body.action))throw Error('この操作は利用できません。')
   if(body.action==='profile') {const c=await hunterCard(db,store,body.id);const ranks=await hunterRanks(db,store);if(body.rank&&body.rank!==c.rank&&!ranks.some(r=>r.rank===body.rank))throw Error('先にランクを設定に登録してください。');body.mission=c.mission}
   if(body.action==='create'&&(body.rank==null||String(body.rank).trim()===''))body.rank='1'
